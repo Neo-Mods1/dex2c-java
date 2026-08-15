@@ -8,6 +8,6 @@ final class Compiler{
   for(ClassDef c:dex.getClasses())for(Method m:c.getMethods()){r.methods++;if(!selected(c,m))continue;try{Graph g=GraphBuilder.build(m);BlockLifter.lift(m,g);IrMethod ir=new SsaBuilder(g,m).build();cpp.append(new CppWriter().write(ir,cli.dynamicRegister));r.compiled++;}catch(Throwable t){r.unsupported++;cpp.append("\n/* FAILED ").append(safe(c.getType()+"->"+m.getName()+descriptor(m)+": "+t)).append(" */\n");}}
   Files.writeString(out.resolve("dex2c.cpp"),cpp,StandardCharsets.UTF_8);Files.writeString(out.resolve("compile-report.txt"),"methods="+r.methods+"\ncompiled="+r.compiled+"\nfailed="+r.unsupported+"\n",StandardCharsets.UTF_8);return r;}
  private boolean selected(ClassDef c,Method m){if(m.getImplementation()==null)return false;String x=c.getType()+"->"+m.getName()+descriptor(m);return(filter==null||filter.matcher(x).find())&&(classFilter==null||classFilter.matcher(c.getType()).find())&&(methodFilter==null||methodFilter.matcher(m.getName()).find());}
- private static String descriptor(Method m){StringBuilder x=new StringBuilder("(");for(String p:m.getParameterTypes())x.append(p);return x.append(")").append(m.getReturnType()).toString();}
+  private static String descriptor(Method m){StringBuilder x=new StringBuilder("(");for(CharSequence p:m.getParameterTypes())x.append(p);return x.append(")").append(m.getReturnType()).toString();}
  private static String safe(String x){return x.replace("*/","* /").replace("\n"," ");}
 }

@@ -10,9 +10,9 @@ public final class SsaBuilder{
  }
  private void defineParams(){
   int reg;try{reg=method.getImplementation().getRegisterCount()-parameterSlots(method);}catch(Exception e){reg=0;}if((method.getAccessFlags()&0x8)==0){Variable v=newVar(reg,false);v.setType(method.getDefiningClass());g.entry.updateCurrentDefinition(reg,v);g.entry.varToDeclare.add(v);reg++;}
-  for(String t:method.getParameterTypes()){Variable v=newVar(reg,false);v.setType(t);g.entry.updateCurrentDefinition(reg,v);g.entry.varToDeclare.add(v);reg+=slots(t);}
+  for(CharSequence p:method.getParameterTypes()){String t=p.toString();Variable v=newVar(reg,false);v.setType(t);g.entry.updateCurrentDefinition(reg,v);g.entry.varToDeclare.add(v);reg+=slots(t);}
  }
- private static int parameterSlots(Method m){int n=0;if((m.getAccessFlags()&0x8)==0)n++;for(String t:m.getParameterTypes())n+=slots(t);return n;}
+  private static int parameterSlots(Method m){int n=0;if((m.getAccessFlags()&0x8)==0)n++;for(CharSequence p:m.getParameterTypes())n+=slots(p.toString());return n;}
  private static int slots(String t){return "J".equals(t)||"D".equals(t)?2:1;}
  private Variable newVar(int r,boolean phi){int v=versions.getOrDefault(r,0);versions.put(r,v+1);return phi?new Phi(r,v):new Variable(r,v);}
  private Variable write(int r){Variable v=newVar(r,false);current.updateCurrentDefinition(r,v);return v;}

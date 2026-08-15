@@ -103,6 +103,8 @@ public final class Main {
 
   static int dexNumber(Path p) { String n=p.getFileName().toString(); if ("classes.dex".equals(n)) return 1; if(n.startsWith("classes") && n.endsWith(".dex")){ try{return Integer.parseInt(n.substring(7,n.length()-4));}catch(Exception ignored){} } return Integer.MAX_VALUE; }
 
+  static String descriptor(Method m) { StringBuilder x=new StringBuilder("("); for(CharSequence p:m.getParameterTypes()) x.append(p); return x.append(")").append(m.getReturnType()).toString(); }
+
   static final class Inspector {
     void run(Path input) throws Exception {
       Path temp=Files.createTempDirectory("dex2c-inspect-");
@@ -114,7 +116,7 @@ public final class Main {
           System.out.println(c.getType()+"  super="+c.getSuperclass()+"  flags=0x"+Integer.toHexString(c.getAccessFlags()));
           for(Method x:c.getMethods()) {
             m++;
-            System.out.printf("  %s%s  flags=0x%x%n",x.getName(),x.getDescriptor(),x.getAccessFlags());
+            System.out.printf("  %s%s  flags=0x%x%n",x.getName(),descriptor(x),x.getAccessFlags());
           }
         }
         System.out.printf("-- %s: %d classes, %d methods --%n",dex.getFileName(),cls,m);

@@ -24,7 +24,7 @@ jobs:
           gradle-version: 8.10.2
 
       - name: Build fat JAR
-        run: ./gradlew clean shadowJar --no-daemon --stacktrace
+        run: ./gradlew clean shadowJar --no-daemon
 
       - name: Smoke tests
         run: |
