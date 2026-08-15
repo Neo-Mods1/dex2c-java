@@ -34,6 +34,10 @@ public final class WriterSmokeTest {
     /** Minimal {@link Method} stub exposing {@code (II)I add}. */
     static final class M implements Method {
         @Override
+        public void validateReference() {
+        }
+
+        @Override
         public MethodImplementation getImplementation() {
             return null;
         }
