@@ -1,0 +1,7 @@
+.gradle/
+build/
+.idea/
+*.iml
+reference/
+out/
+dex2c-out/
