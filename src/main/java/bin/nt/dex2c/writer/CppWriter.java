@@ -111,7 +111,7 @@ public final class CppWriter {
             b.append("\n").append(lp.label())
              .append(":\n  pendingException = env->ExceptionOccurred(); env->ExceptionClear();\n");
             for (Map.Entry<String, IrBasicBlock> h : lp.handles.entrySet()) {
-                b.append("  if (pendingException && env->IsInstanceOf(env, pendingException, env->FindClass(\""))
+                b.append("  if (pendingException && env->IsInstanceOf(env, pendingException, env->FindClass(\"")
                  .append(Types.descToClass(h.getKey())).append("\"))) goto ")
                  .append(h.getValue().label()).append(";\n");
             }
