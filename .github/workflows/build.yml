@@ -31,15 +31,28 @@ jobs:
           java -cp build/classes/java/test:build/libs/dex2c-cli-2.0.0-all.jar bin.nt.dex2c.PortSmokeTest
           java -cp build/classes/java/test:build/libs/dex2c-cli-2.0.0-all.jar bin.nt.dex2c.WriterSmokeTest
 
-      - name: Compile test APK
+      - name: Compile test APK (source only)
         run: java -jar build/libs/dex2c-cli-2.0.0-all.jar --input "test/NT Manager_1.0.apk" --output build/apk-out
 
       - name: Inspect test APK
         run: java -jar build/libs/dex2c-cli-2.0.0-all.jar --command inspect --input "test/NT Manager_1.0.apk" > /dev/null
 
+      - name: Full dex2c APK build (NDK, repack, sign)
+        run: java -jar build/libs/dex2c-cli-2.0.0-all.jar --command build --input "test/NT Manager_1.0.apk" --output build/dex2c-out.apk
+
+      - name: Verify built APK
+        run: |
+          unzip -t build/dex2c-out.apk > /dev/null
+          unzip -l build/dex2c-out.apk | grep -E "classes[0-9]*\.dex|lib/.+/lib.*\.so"
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
+          "$APKSIGNER" verify build/dex2c-out.apk
+          java -jar build/libs/dex2c-cli-2.0.0-all.jar --command inspect --input build/dex2c-out.apk | grep -c "native" || true
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: dex2c-cli-2.0.0
-          path: build/libs/dex2c-cli-2.0.0-all.jar
+          path: |
+            build/libs/dex2c-cli-2.0.0-all.jar
+            build/dex2c-out.apk
           if-no-files-found: error

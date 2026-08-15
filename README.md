@@ -2,6 +2,8 @@
 
 `dex2c-cli` is a standalone command-line compiler that translates Dalvik bytecode — from raw `.dex` files, APKs, or Zips — into JNI-ready C++ source code. Each method is lowered through a full IR pipeline (control-flow graph, SSA, register allocation) and emitted as a native function that can be built into a `.so` and loaded with `System.loadLibrary`.
 
+Beyond generating source, the `build` command runs the complete dex2c pipeline on an APK: it compiles methods to C++, builds the `.so` with the Android NDK, rewrites the DEX so every compiled method is `native`, injects the `System.loadLibrary` call into the Application class, repacks and zipaligns the APK, and signs it.
+
 It is a **CLI/fat-JAR project**, not an Android library, and does not build an AAR.
 
 ## Pipeline
@@ -154,6 +156,30 @@ java -jar build/libs/dex2c-cli-2.0.0-all.jar \
   --input app.apk
 ```
 
+Build a hardened APK (compile → NDK `.so` → mark native → repack → sign):
+
+```bash
+java -jar build/libs/dex2c-cli-2.0.0-all.jar \
+  --command build \
+  --input app.apk \
+  --output app-dex2c.apk
+```
+
+The `build` command discovers `ndk-build` from `--ndk-dir` or `ANDROID_NDK_HOME`, and `zipalign`/`apksigner` from `--zipalign`/`--apksigner` or the Android build-tools directory. A debug keystore is generated automatically when none is given. Useful flags:
+
+```bash
+--lib-name mylib      # LOCAL_MODULE name (default: stub)
+--dynamic-register    # register natives via RegisterNatives instead of static exports
+--min-sdk 21          # native build + apksigner target SDK
+--lib-abis arm64-v8a,armeabi-v7a
+--no-build            # only generate the JNI project, do not run ndk-build
+--source-dir ./project
+--disable-signing     # skip zipalign/apksigner
+--keystore ks.jks --alias mykey --ks-pass pass:secret --key-pass pass:secret
+```
+
+The Application class is located from the manifest's `android:name`; the APK must declare one so the library load can be injected.
+
 ## Testing
 
 The test suite covers the IR pipeline (graph, SSA, phi cleanup) and the C++ writer end-to-end:
@@ -161,7 +187,7 @@ The test suite covers the IR pipeline (graph, SSA, phi cleanup) and the C++ writ
 - `PortSmokeTest` — graph construction, RPO, dominators, trivial-phi removal
 - `WriterSmokeTest` — a method lowered through the full pipeline to JNI C++
 
-Continuous integration (`.github/workflows/build.yml`) builds the fat JAR, runs both smoke tests, compiles and inspects the real APK under `test/` (`NT Manager_1.0.apk`), and uploads the JAR as a build artifact.
+Continuous integration (`.github/workflows/build.yml`) builds the fat JAR, runs both smoke tests, compiles and inspects the real APK under `test/` (`NT Manager_1.0.apk`), runs the full `build` pipeline against it with the NDK, verifies the signed output, and uploads the JAR and APK as build artifacts.
 
 ## License
 

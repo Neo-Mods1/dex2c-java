@@ -671,16 +671,52 @@ public final class CppWriter {
         return x.append(")").append(m.getReturnType()).toString();
     }
 
-    /** Derives the exported JNI symbol name of a method. */
-    static final class JniNames {
+    /**
+     * JNI symbol name helpers.
+     *
+     * <p>Emits the long form ({@code Java_<class>_<method>__<mangled-sig>})
+     * exactly as the reference dex2c does, so overloaded methods always resolve
+     * to distinct exported symbols.</p>
+     */
+    public static final class JniNames {
         private JniNames() {
         }
 
-        static String name(Method m) {
-            String c = m.getDefiningClass();
-            c = c.substring(1, c.length() - 1).replace('_', '_').replace('/', '_');
-            String n = m.getName().replace("_", "_1");
-            return "Java_" + c + "_" + n;
+        /** Long JNI name of a method. */
+        public static String name(Method m) {
+            return longName(m.getDefiningClass(), m.getName(), descriptor(m));
+        }
+
+        /** Builds {@code Java_<class>_<method>__<mangled-params>}. */
+        public static String longName(String cls, String method, String desc) {
+            return shortName(cls, method) + "__" + mangle(desc.substring(1, desc.indexOf(')')));
+        }
+
+        /** Builds {@code Java_<class>_<method>}. */
+        public static String shortName(String cls, String method) {
+            return "Java_" + mangle(cls.substring(1, cls.length() - 1)) + "_" + mangle(method);
+        }
+
+        /** JNI mangling of one UTF-16 string. */
+        public static String mangle(String s) {
+            StringBuilder r = new StringBuilder(s.length() * 2);
+            for (int i = 0; i < s.length(); i++) {
+                char ch = s.charAt(i);
+                if (('A' <= ch && ch <= 'Z') || ('a' <= ch && ch <= 'z') || ('0' <= ch && ch <= '9')) {
+                    r.append(ch);
+                } else if (ch == '.' || ch == '/') {
+                    r.append('_');
+                } else if (ch == '_') {
+                    r.append("_1");
+                } else if (ch == ';') {
+                    r.append("_2");
+                } else if (ch == '[') {
+                    r.append("_3");
+                } else {
+                    r.append(String.format("_0%04x", (int) ch));
+                }
+            }
+            return r.toString();
         }
     }
 }

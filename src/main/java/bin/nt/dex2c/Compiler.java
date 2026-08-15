@@ -4,6 +4,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile;
@@ -26,10 +31,10 @@ import bin.nt.dex2c.writer.CppWriter;
  * written into the output directory. Methods that fail are recorded in the
  * report and never abort the pass.</p>
  */
-final class Compiler {
+public final class Compiler {
 
     /** C++ prelude emitted at the top of every generated source file. */
-    private static final String HEADER =
+    public static final String HEADER =
             "#include <jni.h>\n"
             + "#include <cstdint>\n"
             + "#include <cmath>\n"
@@ -48,7 +53,8 @@ final class Compiler {
     private final Pattern classFilter;
     private final Pattern methodFilter;
 
-    Compiler(Main.Cli c) {
+    /** Creates the pass with the given CLI filters. */
+    public Compiler(Main.Cli c) {
         cli = c;
         filter = p(c.filter);
         classFilter = p(c.classFilter);
@@ -68,14 +74,43 @@ final class Compiler {
      * @return the pass statistics
      * @throws IOException on I/O failure
      */
-    Main.Result compile(DexBackedDexFile dex, Path out) throws IOException {
+    public Main.Result compile(DexBackedDexFile dex, Path out) throws IOException {
         Files.createDirectories(out);
-        Main.Result r = new Main.Result();
         StringBuilder cpp = new StringBuilder(HEADER);
+        Main.Result r = compileInto(dex, cpp, null);
+        Files.writeString(out.resolve("dex2c.cpp"), mappable(cpp.toString()), StandardCharsets.UTF_8);
+        Files.writeString(out.resolve("compile-report.txt"),
+                "methods=" + r.methods + "\ncompiled=" + r.compiled + "\nfailed=" + r.unsupported + "\n",
+                StandardCharsets.UTF_8);
+        return r;
+    }
+
+    /**
+     * Appends the C++ of every selected method of {@code dex} to {@code cpp}
+     * without the {@link #HEADER} prelude, and records each successfully
+     * compiled method in {@code compiled} when it is non-null.
+     *
+     * <p>Methods whose (class, name, parameters) collide with a different
+     * return type are skipped: the JVM cannot dispatch them through a single
+     * JNI symbol, exactly as the reference dex2c's conflict detection.</p>
+     *
+     * @param dex      the DEX file
+     * @param cpp      the sink receiving generated source
+     * @param compiled optional list that receives compiled methods
+     * @return the pass statistics
+     */
+    public Main.Result compileInto(DexBackedDexFile dex, StringBuilder cpp, List<Method> compiled) {
+        Main.Result r = new Main.Result();
+        Set<String> conflicted = conflicts(dex);
         for (ClassDef c : dex.getClasses()) {
             for (Method m : c.getMethods()) {
                 r.methods++;
                 if (!selected(c, m)) {
+                    continue;
+                }
+                String key = c.getType() + m.getName() + params(m);
+                if (conflicted.contains(key)) {
+                    r.unsupported++;
                     continue;
                 }
                 try {
@@ -84,6 +119,9 @@ final class Compiler {
                     IrMethod ir = new SsaBuilder(g, m).build();
                     cpp.append(new CppWriter().write(ir, cli.dynamicRegister));
                     r.compiled++;
+                    if (compiled != null) {
+                        compiled.add(m);
+                    }
                 } catch (Throwable t) {
                     r.unsupported++;
                     cpp.append("\n/* FAILED ")
@@ -92,11 +130,40 @@ final class Compiler {
                 }
             }
         }
-        Files.writeString(out.resolve("dex2c.cpp"), mappable(cpp.toString()), StandardCharsets.UTF_8);
-        Files.writeString(out.resolve("compile-report.txt"),
-                "methods=" + r.methods + "\ncompiled=" + r.compiled + "\nfailed=" + r.unsupported + "\n",
-                StandardCharsets.UTF_8);
         return r;
+    }
+
+    /** The parameter types of a method as a single string. */
+    private static String params(Method m) {
+        StringBuilder x = new StringBuilder();
+        for (CharSequence p : m.getParameterTypes()) {
+            x.append(p);
+        }
+        return x.toString();
+    }
+
+    /**
+     * Finds (class, name, parameter) keys that occur with more than one
+     * distinct return type in the dex.
+     *
+     * @param dex the DEX file
+     * @return the conflicting keys
+     */
+    private static Set<String> conflicts(DexBackedDexFile dex) {
+        Map<String, Set<String>> byKey = new HashMap<>();
+        for (ClassDef c : dex.getClasses()) {
+            for (Method m : c.getMethods()) {
+                byKey.computeIfAbsent(c.getType() + m.getName() + params(m), k -> new HashSet<>())
+                     .add(m.getReturnType());
+            }
+        }
+        Set<String> bad = new HashSet<>();
+        for (Map.Entry<String, Set<String>> e : byKey.entrySet()) {
+            if (e.getValue().size() > 1) {
+                bad.add(e.getKey());
+            }
+        }
+        return bad;
     }
 
     /** Lone surrogates (malformed UTF-16 from obfuscated dex names) that UTF-8 cannot encode. */
@@ -110,7 +177,7 @@ final class Compiler {
      * @param s the generated C++ source
      * @return the source with lone surrogates replaced by {@code ?}
      */
-    private static String mappable(String s) {
+    public static String mappable(String s) {
         return s == null ? s : LONE_SURROGATE.matcher(s).replaceAll("?");
     }
 

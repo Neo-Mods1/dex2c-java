@@ -30,7 +30,7 @@ import com.android.tools.smali.dexlib2.iface.Method;
 public final class Main {
 
     /** Version reported by {@code --version}. */
-    private static final String VERSION = "2.0.0";
+    private static final String VERSION = "1.0.0";
 
     private Main() {
     }
@@ -63,6 +63,10 @@ public final class Main {
             return;
         }
         Path out = cli.output == null ? Paths.get("dex2c-out") : Paths.get(cli.output);
+        if ("build".equals(cli.command)) {
+            bin.nt.dex2c.build.Build.run(cli, input, out);
+            return;
+        }
         Files.createDirectories(out);
         List<Path> dexes = InputDexes.extract(input, out.resolve(".input"));
         Compiler compiler = new Compiler(cli);
@@ -83,7 +87,7 @@ public final class Main {
      * @param m the method
      * @return the descriptor string
      */
-    static String descriptor(Method m) {
+    public static String descriptor(Method m) {
         StringBuilder x = new StringBuilder("(");
         for (CharSequence p : m.getParameterTypes()) {
             x.append(p);
@@ -104,18 +108,31 @@ public final class Main {
      * <p>Supports both long ({@code --input}) and short ({@code -i}) forms,
      * positional input, and compile-time filters.</p>
      */
-    static final class Cli {
-        String command = "compile";
-        String input;
-        String output;
-        String filter;
-        String classFilter;
-        String methodFilter;
-        boolean help;
-        boolean version;
-        boolean dynamicRegister;
-        boolean keepSynthetic;
-        boolean comments = true;
+    public static final class Cli {
+        public String command = "compile";
+        public String input;
+        public String output;
+        public String filter;
+        public String classFilter;
+        public String methodFilter;
+        public boolean help;
+        public boolean version;
+        public boolean dynamicRegister;
+        public boolean keepSynthetic;
+        public boolean comments = true;
+        public String libName;
+        public String ndkDir;
+        public String zipalign;
+        public String apksigner;
+        public String keystore;
+        public String alias;
+        public String ksPass;
+        public String keyPass;
+        public String sourceDir;
+        public String libAbis;
+        public int minSdk = 21;
+        public boolean noBuild;
+        public boolean disableSigning;
 
         private Cli() {
         }
@@ -168,6 +185,45 @@ public final class Main {
                     case "--no-comments":
                         c.comments = false;
                         break;
+                    case "--lib-name":
+                        c.libName = a[++i];
+                        break;
+                    case "--ndk-dir":
+                        c.ndkDir = a[++i];
+                        break;
+                    case "--zipalign":
+                        c.zipalign = a[++i];
+                        break;
+                    case "--apksigner":
+                        c.apksigner = a[++i];
+                        break;
+                    case "--keystore":
+                        c.keystore = a[++i];
+                        break;
+                    case "--alias":
+                        c.alias = a[++i];
+                        break;
+                    case "--ks-pass":
+                        c.ksPass = a[++i];
+                        break;
+                    case "--key-pass":
+                        c.keyPass = a[++i];
+                        break;
+                    case "--source-dir":
+                        c.sourceDir = a[++i];
+                        break;
+                    case "--lib-abis":
+                        c.libAbis = a[++i];
+                        break;
+                    case "--min-sdk":
+                        c.minSdk = Integer.parseInt(a[++i]);
+                        break;
+                    case "--no-build":
+                        c.noBuild = true;
+                        break;
+                    case "--disable-signing":
+                        c.disableSigning = true;
+                        break;
                     default:
                         if (!x.startsWith("-") && c.input == null) {
                             c.input = x;
@@ -184,12 +240,26 @@ public final class Main {
             System.out.println("dex2c-cli - DEX/APK to JNI C++ source compiler\n"
                     + "Usage: java -jar dex2c-cli-all.jar [options]\n"
                     + "  -i, --input <apk|dex>       Input APK or DEX\n"
-                    + "  -o, --output <dir>          Output directory\n"
+                    + "  -o, --output <dir|apk>      Output dir (compile) or APK file (build)\n"
                     + "  --filter <regex>            Method descriptor filter\n"
                     + "  --class <regex>             Class descriptor filter\n"
                     + "  --method <regex>            Method name filter\n"
-                    + "  --dynamic-register          Emit RegisterNatives metadata\n"
-                    + "  --command <compile|inspect>\n"
+                    + "  --dynamic-register          Register natives via RegisterNatives\n"
+                    + "  --command <compile|build|inspect>\n"
+                    + "Build options:\n"
+                    + "  --lib-name <name>           Native library module name (default: stub)\n"
+                    + "  --ndk-dir <dir>             Android NDK root (default: discover from env)\n"
+                    + "  --min-sdk <n>               Target SDK for the native build (default: 21)\n"
+                    + "  --lib-abis <a,b,c>          Override target ABIs (default: APK lib dirs)\n"
+                    + "  --no-build                  Generate the JNI project without running ndk-build\n"
+                    + "  --source-dir <dir>          Write the JNI project here (default: temp)\n"
+                    + "  --disable-signing           Skip zipalign/apksigner\n"
+                    + "  --keystore <path>           Signing keystore (default: generated debug key)\n"
+                    + "  --alias <alias>             Keystore alias (default: androiddebugkey)\n"
+                    + "  --ks-pass <pass>            Keystore password (default: android)\n"
+                    + "  --key-pass <pass>           Key password (default: android)\n"
+                    + "  --zipalign <path>           zipalign binary (default: from build-tools)\n"
+                    + "  --apksigner <path>          apksigner binary (default: from build-tools)\n"
                     + "  -h, --help                  Show help\n");
         }
     }
@@ -201,7 +271,7 @@ public final class Main {
      * {@code .zip} inputs are opened and every {@code classes*.dex} entry is
      * extracted into the given directory, sorted by dex number.</p>
      */
-    static final class InputDexes {
+    public static final class InputDexes {
         private InputDexes() {
         }
 
@@ -213,7 +283,7 @@ public final class Main {
          * @return the list of DEX paths
          * @throws IOException on I/O failure
          */
-        static List<Path> extract(Path in, Path dir) throws IOException {
+        public static List<Path> extract(Path in, Path dir) throws IOException {
             Files.createDirectories(dir);
             String n = in.getFileName().toString().toLowerCase(Locale.ROOT);
             if (n.endsWith(".dex")) {
@@ -293,7 +363,9 @@ public final class Main {
                             + "  flags=0x" + Integer.toHexString(c.getAccessFlags()));
                     for (Method x : c.getMethods()) {
                         m++;
-                        System.out.printf("  %s%s  flags=0x%x%n", x.getName(), descriptor(x), x.getAccessFlags());
+                        String nativeFlag = (x.getAccessFlags() & 0x100) != 0 ? " native" : "";
+                        System.out.printf("  %s%s  flags=0x%x%s%n", x.getName(), descriptor(x),
+                                x.getAccessFlags(), nativeFlag);
                     }
                 }
                 System.out.printf("-- %s: %d classes, %d methods --%n", dex.getFileName(), cls, m);
