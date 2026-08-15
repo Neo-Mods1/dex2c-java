@@ -5,3 +5,4 @@ build/
 reference/
 out/
 dex2c-out/
+!src/main/java/bin/nt/dex2c/build/
