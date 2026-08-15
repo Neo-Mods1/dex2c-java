@@ -92,11 +92,26 @@ final class Compiler {
                 }
             }
         }
-        Files.writeString(out.resolve("dex2c.cpp"), cpp, StandardCharsets.UTF_8);
+        Files.writeString(out.resolve("dex2c.cpp"), mappable(cpp.toString()), StandardCharsets.UTF_8);
         Files.writeString(out.resolve("compile-report.txt"),
                 "methods=" + r.methods + "\ncompiled=" + r.compiled + "\nfailed=" + r.unsupported + "\n",
                 StandardCharsets.UTF_8);
         return r;
+    }
+
+    /** Lone surrogates (malformed UTF-16 from obfuscated dex names) that UTF-8 cannot encode. */
+    private static final Pattern LONE_SURROGATE =
+            Pattern.compile("[\uD800-\uDBFF](?![\uDC00-\uDFFF])|[\uDC00-\uDFFF](?<![\uD800-\uDBFF])");
+
+    /**
+     * Replaces unpaired surrogate code units, which {@link StandardCharsets#UTF_8}
+     * rejects, so the source file always writes successfully.
+     *
+     * @param s the generated C++ source
+     * @return the source with lone surrogates replaced by {@code ?}
+     */
+    private static String mappable(String s) {
+        return s == null ? s : LONE_SURROGATE.matcher(s).replaceAll("?");
     }
 
     /**
