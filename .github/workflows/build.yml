@@ -23,13 +23,13 @@ jobs:
         with:
           gradle-version: 8.10.2
 
-      - name: Build fat JAR
-        run: ./gradlew clean shadowJar --no-daemon
+      - name: Build fat JAR and test classes
+        run: ./gradlew clean shadowJar testClasses --no-daemon
 
       - name: Smoke tests
         run: |
-          java -cp build/libs/dex2c-cli-2.0.0-all.jar bin.nt.dex2c.PortSmokeTest
-          java -cp build/libs/dex2c-cli-2.0.0-all.jar bin.nt.dex2c.WriterSmokeTest
+          java -cp build/classes/java/test:build/libs/dex2c-cli-2.0.0-all.jar bin.nt.dex2c.PortSmokeTest
+          java -cp build/classes/java/test:build/libs/dex2c-cli-2.0.0-all.jar bin.nt.dex2c.WriterSmokeTest
 
       - name: Compile test APK
         run: java -jar build/libs/dex2c-cli-2.0.0-all.jar --input "test/NT Manager_1.0.apk" --output build/apk-out
