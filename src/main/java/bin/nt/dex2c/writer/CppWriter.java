@@ -61,7 +61,7 @@ public final class CppWriter {
         return b.toString();
     }
 
-    /** Emits the {@code /* Lcls;->name(desc) */} header comment. */
+    /** Emits the header comment identifying the compiled method. */
     private void appendFunctionComment(StringBuilder b, Method m) {
         b.append("\n/* ").append(m.getDefiningClass()).append("->")
          .append(m.getName()).append(descriptor(m)).append(" */\n");
