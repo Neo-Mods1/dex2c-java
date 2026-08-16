@@ -173,6 +173,7 @@ public final class Build {
             List<String> out = new ArrayList<>(zipalign);
             out.add(unsigned.toString());
             out.add(aligned.toString());
+            ToolRunner.run(out);
             List<String> sign = new ArrayList<>();
             sign.add(ToolRunner.findTool(cli.apksigner, "apksigner"));
             sign.add("sign");
