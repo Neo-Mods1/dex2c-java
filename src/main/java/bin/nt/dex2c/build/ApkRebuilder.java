@@ -30,10 +30,11 @@ final class ApkRebuilder {
      * @param dexReplace    dex entry name ({@code classes*.dex}) to new DEX file
      * @param libs          ABI to built {@code lib<name>.so}
      * @param libName       the {@code LOCAL_MODULE} name
+     * @param manifest      replacement {@code AndroidManifest.xml} bytes, or {@code null}
      * @throws IOException on I/O failure
      */
     static void rebuild(Path inApk, Path outApk, Map<String, Path> dexReplace,
-            Map<String, Path> libs, String libName) throws IOException {
+            Map<String, Path> libs, String libName, byte[] manifest) throws IOException {
         byte[] buf = new byte[65536];
         try (ZipFile zin = new ZipFile(inApk.toFile());
              ZipOutputStream zout = new ZipOutputStream(Files.newOutputStream(outApk))) {
@@ -47,6 +48,8 @@ final class ApkRebuilder {
                 zout.putNextEntry(out);
                 if (repl != null) {
                     Files.copy(repl, zout);
+                } else if (manifest != null && "AndroidManifest.xml".equals(name)) {
+                    zout.write(manifest);
                 } else if (!e.isDirectory()) {
                     try (InputStream is = zin.getInputStream(e)) {
                         int n;

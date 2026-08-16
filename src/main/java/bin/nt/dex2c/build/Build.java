@@ -19,6 +19,7 @@ import java.util.zip.ZipFile;
 
 import com.android.tools.smali.dexlib2.DexFileFactory;
 import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile;
+import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.Method;
 
 import bin.nt.dex2c.Compiler;
@@ -65,13 +66,30 @@ public final class Build {
         List<Path> dexes = Main.InputDexes.extract(input, work.resolve("dex"));
         BinaryXml.Manifest man = BinaryXml.read(input);
         String appClass = resolveAppClass(man);
+        boolean nativeStage = cli.nativeEnabled == null || cli.nativeEnabled;
+        ClassDef loader = null;
+        byte[] manifestOverride = null;
         if (appClass == null) {
-            throw new IOException("AndroidManifest.xml has no application android:name; cannot inject System.loadLibrary");
+            if (!nativeStage) {
+                throw new IOException("no Application class; enable native protection or use --no-build");
+            }
+            String loaderType = loaderType(man, cli.customLoader, dexes);
+            loader = DexRewriter.loaderClass(loaderType, libName);
+            manifestOverride = ManifestPatcher.patchApplicationName(
+                    BinaryXml.rawManifest(input),
+                    loaderType.substring(1, loaderType.length() - 1).replace('/', '.'));
+            if (cli.excludes == null) {
+                cli.excludes = new ArrayList<>();
+            }
+            String keep = Pattern.quote(loaderType);
+            if (!cli.excludes.contains(keep)) {
+                cli.excludes.add(keep);
+            }
+            System.out.println("build: no Application class; generated loader " + loaderType);
         }
         List<Method> compiled = new ArrayList<>();
         StringBuilder cpp = new StringBuilder(Compiler.HEADER);
-        boolean nativeStage = cli.nativeEnabled == null || cli.nativeEnabled;
-        Compiler compiler = new Compiler(cli, nativeStage && targeted(cli, appClass) ? appClass : null);
+        Compiler compiler = new Compiler(cli, appClass != null && targeted(cli, appClass) ? appClass : null);
         for (Path dex : dexes) {
             DexBackedDexFile df = DexFileFactory.loadDexFile(dex.toFile(), null);
             compiler.compileInto(df, cpp, compiled);
@@ -100,16 +118,18 @@ public final class Build {
             compiledSet.add(m.getDefiningClass() + m.getName() + Main.descriptor(m));
         }
         Map<String, Path> newDexes = new LinkedHashMap<>();
-        int di = 0;
+        boolean first = true;
         for (Path dex : dexes) {
             String dexName = dex.getFileName().toString();
             if (nativeStage) {
-                NativeMarker.mark(dex, work.resolve("new-" + dexName), work.resolve("smali" + di++),
-                        compiledSet, appClass, libName);
-                newDexes.put(dexName, work.resolve("new-" + dexName));
+                Path rewritten = work.resolve("new-" + dexName);
+                DexRewriter.rewrite((DexBackedDexFile) DexFileFactory.loadDexFile(dex.toFile(), null),
+                        rewritten, compiledSet, appClass, libName, first ? loader : null);
+                newDexes.put(dexName, rewritten);
             } else {
                 newDexes.put(dexName, dex);
             }
+            first = false;
         }
 
         Map<String, Path> libs = new LinkedHashMap<>();
@@ -121,7 +141,7 @@ public final class Build {
         }
 
         Path unsigned = work.resolve("unsigned.apk");
-        ApkRebuilder.rebuild(input, unsigned, newDexes, libs, libName);
+        ApkRebuilder.rebuild(input, unsigned, newDexes, libs, libName, manifestOverride);
         if (cli.disableSigning) {
             ToolRunner.run(List.of(ToolRunner.findTool(cli.zipalign, "zipalign"), "-f", "4",
                     unsigned.toString(), outApk.toString()));
@@ -181,6 +201,46 @@ public final class Build {
             }
         }
         return cli.filter == null || Pattern.compile(cli.filter).matcher(appClass).find();
+    }
+
+    /**
+     * Picks the generated loader class type: {@code --custom-loader} when
+     * given, otherwise the app package's own {@code App} class
+     * ({@code <pkg>.App}), else the default {@code bin.nt.utils.NativeLoader}.
+     * A numeric suffix avoids colliding with an existing class.
+     */
+    static String loaderType(BinaryXml.Manifest man, String custom, List<Path> dexes) {
+        String dotted;
+        if (custom != null && !custom.isEmpty()) {
+            dotted = custom.startsWith("L") && custom.endsWith(";")
+                    ? custom.substring(1, custom.length() - 1) : custom;
+        } else if (man != null && man.pkg != null && !man.pkg.isEmpty()) {
+            dotted = man.pkg + ".App";
+        } else {
+            dotted = "bin.nt.utils.NativeLoader";
+        }
+        Set<String> existing = new HashSet<>();
+        for (Path dex : dexes) {
+            try {
+                DexBackedDexFile df = (DexBackedDexFile) DexFileFactory.loadDexFile(dex.toFile(), null);
+                for (ClassDef c : df.getClasses()) {
+                    existing.add(c.getType());
+                }
+            } catch (IOException ignored) {
+            }
+        }
+        String type = "L" + dotted.replace('.', '/') + ";";
+        if (!existing.contains(type)) {
+            return type;
+        }
+        int slash = type.lastIndexOf('/');
+        String pkgPrefix = type.substring(0, slash + 1);
+        for (int n = 2; ; n++) {
+            String alt = pkgPrefix + "App" + n + ";";
+            if (!existing.contains(alt)) {
+                return alt;
+            }
+        }
     }
 
     /** Resolves the Application class descriptor, handling relative names. */

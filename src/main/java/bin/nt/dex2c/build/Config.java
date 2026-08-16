@@ -23,6 +23,8 @@ public final class Config {
     public boolean nativeEnabled = true;
     /** Native library name ({@code System.loadLibrary} argument). */
     public String nativeLib;
+    /** Loader class override, used when the APK has no Application class. */
+    public String loaderClass = "";
     /** Input APK path, resolved against the working directory. */
     public String inputApk = "";
     /** Output APK path, resolved against the working directory. */
@@ -138,6 +140,9 @@ public final class Config {
                         break;
                     case "native_lib":
                         cfg.nativeLib = value;
+                        break;
+                    case "loader_class":
+                        cfg.loaderClass = value;
                         break;
                     default:
                         break;

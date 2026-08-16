@@ -218,6 +218,18 @@ exclude = [ "bin/nt/main/App", ]
 `<clinit>` is spared from compilation so the injected `System.loadLibrary`
 call keeps running from the DEX.
 
+### Application class fallback
+
+APKs without an `application android:name` in the manifest are unsupported by
+`System.loadLibrary` injection alone. In that case dex2c generates a loader
+class — a real `android.app.Application` subclass named `App` in the app's
+own package (e.g. `bin.nt.main.App`), whose `onCreate()` calls
+`super.onCreate()` then `System.loadLibrary` — patches the manifest
+`android:name` (strings are appended to the existing binary string pool, all
+other chunks stay byte-identical), and keeps the generated class out of the
+compilation so its bodies survive the rewrite. Configure it with
+`loader_class = "..."` or `--custom-loader <class>` (dotted or `L...;`).
+
 ## Testing
 
 The test suite covers the IR pipeline (graph, SSA, phi cleanup) and the C++ writer end-to-end:

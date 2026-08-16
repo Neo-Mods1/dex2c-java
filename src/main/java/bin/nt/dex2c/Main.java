@@ -127,6 +127,7 @@ public final class Main {
         public boolean keepSynthetic;
         public boolean comments = true;
         public String libName;
+        public String customLoader;
         public String ndkDir;
         public String zipalign;
         public String apksigner;
@@ -199,6 +200,9 @@ public final class Main {
                         break;
                     case "--lib-name":
                         c.libName = a[++i];
+                        break;
+                    case "--custom-loader":
+                        c.customLoader = a[++i];
                         break;
                     case "--ndk-dir":
                         c.ndkDir = a[++i];
@@ -316,6 +320,9 @@ public final class Main {
             if (libName == null) {
                 libName = cfg.nativeLib;
             }
+            if (customLoader == null && !cfg.loaderClass.isEmpty()) {
+                customLoader = cfg.loaderClass;
+            }
             if (ndkDir == null && !cfg.ndkDir.isEmpty()) {
                 ndkDir = resolve(cfg.ndkDir);
             }
@@ -367,6 +374,7 @@ public final class Main {
                     + "  --command <compile|build|inspect>\n"
                     + "Build options:\n"
                     + "  --lib-name <name>           Native library module name (default: stub)\n"
+                    + "  --custom-loader <class>     Loader class when no Application (default: <pkg>.App)\n"
                     + "  --ndk-dir <dir>             Android NDK root (default: discover from env)\n"
                     + "  --min-sdk <n>               Target SDK for the native build (default: 21)\n"
                     + "  --lib-abis <a,b,c>          Override target ABIs (default: APK lib dirs)\n"

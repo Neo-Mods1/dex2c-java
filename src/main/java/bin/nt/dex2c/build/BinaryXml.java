@@ -45,6 +45,17 @@ public final class BinaryXml {
      * @throws IOException if the manifest is missing or unreadable
      */
     public static Manifest read(Path apk) throws IOException {
+        return read(rawManifest(apk));
+    }
+
+    /**
+     * Reads the raw {@code AndroidManifest.xml} entry of an APK.
+     *
+     * @param apk the APK file
+     * @return the manifest bytes
+     * @throws IOException if the manifest is missing
+     */
+    public static byte[] rawManifest(Path apk) throws IOException {
         try (ZipFile z = new ZipFile(apk.toFile())) {
             ZipEntry e = z.getEntry("AndroidManifest.xml");
             if (e == null) {
@@ -54,8 +65,13 @@ public final class BinaryXml {
             try (InputStream is = z.getInputStream(e)) {
                 data = is.readAllBytes();
             }
-            return parse(data);
+            return data;
         }
+    }
+
+    /** Parses binary manifest bytes. */
+    public static Manifest read(byte[] d) throws IOException {
+        return parse(d);
     }
 
     private static Manifest parse(byte[] d) throws IOException {
@@ -85,7 +101,7 @@ public final class BinaryXml {
                     int ans = u32(d, aoff);
                     int aname = u32(d, aoff + 4);
                     int raw = u32(d, aoff + 8);
-                    int atype = d[aoff + 14] & 0xFF;
+                    int atype = d[aoff + 15] & 0xFF;
                     int adata = u32(d, aoff + 16);
                     String attr = str(pool, aname);
                     if (attr != null) {
@@ -120,24 +136,27 @@ public final class BinaryXml {
         String[] out = new String[count];
         for (int i = 0; i < count; i++) {
             int off = u32(d, start + 28 + 4 * i);
-            int s = start + stringsStart + off;
-            if ((flags & FLAG_UTF8) != 0) {
-                int[] l16 = utfLen(d, s);
-                s += l16[1];
-                int[] l8 = utfLen(d, s);
-                s += l8[1];
-                out[i] = new String(d, s, l8[0], StandardCharsets.UTF_8);
-            } else {
-                int n = u16(d, s);
-                s += 2;
-                StringBuilder sb = new StringBuilder(n);
-                for (int j = 0; j < n; j++) {
-                    sb.append((char) u16(d, s + 2 * j));
-                }
-                out[i] = sb.toString();
-            }
+            out[i] = readString(d, start + stringsStart + off, (flags & FLAG_UTF8) != 0);
         }
         return out;
+    }
+
+    /** Decodes one pool string at the given absolute offset. */
+    static String readString(byte[] d, int s, boolean utf8) {
+        if (utf8) {
+            int[] l16 = utfLen(d, s);
+            s += l16[1];
+            int[] l8 = utfLen(d, s);
+            s += l8[1];
+            return new String(d, s, l8[0], StandardCharsets.UTF_8);
+        }
+        int n = u16(d, s);
+        s += 2;
+        StringBuilder sb = new StringBuilder(n);
+        for (int j = 0; j < n; j++) {
+            sb.append((char) u16(d, s + 2 * j));
+        }
+        return sb.toString();
     }
 
     /** Decodes a variable-length UTF-8 string length; returns {@code {value, bytes}}. */
