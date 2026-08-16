@@ -69,7 +69,7 @@ public class Value {
         }
         String merged = TypeUtil.merge(type, t);
         if (merged == null) {
-            throw new IllegalStateException("unable to refine type " + type + " with " + t);
+            return false;
         }
         if (!Objects.equals(type, merged)) {
             type = merged;

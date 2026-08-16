@@ -2,10 +2,12 @@ package bin.nt.dex2c.writer;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 import com.android.tools.smali.dexlib2.iface.Method;
 import com.android.tools.smali.dexlib2.iface.reference.FieldReference;
@@ -87,14 +89,53 @@ public final class CppWriter {
     /** Emits the {@code pendingException} holder and every SSA variable. */
     private void appendVariableDeclarations(StringBuilder b, IrMethod ir) {
         b.append("  jthrowable pendingException = NULL;\n");
+        Map<String, String[]> slots = new TreeMap<>();
         for (Value v : allVars(ir)) {
             if (v instanceof Variable) {
                 Variable x = (Variable) v;
-                b.append("  ").append(Types.c(x.getType())).append(" ")
-                 .append(var(x, ir)).append(defaultInit(x.getType())).append(";\n");
+                String n = var(x, ir);
+                String t = Types.c(x.getType());
+                String[] prev = slots.get(n);
+                if (prev == null || cTypePriority(t) > cTypePriority(prev[1])) {
+                    slots.put(n, new String[]{n, t, x.getType()});
+                }
             }
         }
+        for (String[] e : slots.values()) {
+            String t = e[1];
+            b.append("  ").append(t).append(" ").append(e[0])
+             .append(cTypeInit(t)).append(";\n");
+        }
+        slotTypes.clear();
+        for (String[] e : slots.values()) {
+            slotTypes.put(e[0], e[1]);
+        }
     }
+
+    /** Stable precedence when the same slot is used with conflicting types. */
+    private static int cTypePriority(String t) {
+        if (t == null || t.contains("Array") || t.equals("jobject") || t.equals("jstring")
+                || t.equals("jclass") || t.equals("jthrowable") || t.equals("jweak")
+                || t.equals("jchar")) {
+            return 100;
+        }
+        if (t.equals("jlong") || t.equals("jdouble")) {
+            return 50;
+        }
+        return 10;
+    }
+
+    /** Default initializer for a declared C++ type. */
+    private static String cTypeInit(String t) {
+        if (t != null && (t.contains("Array") || t.equals("jobject") || t.equals("jstring")
+                || t.equals("jclass") || t.equals("jthrowable") || t.equals("jweak"))) {
+            return " = NULL";
+        }
+        return " = 0";
+    }
+
+    /** Declared C++ types of every emitted variable, keyed by slot name. */
+    private final Map<String, String> slotTypes = new HashMap<>();
 
     /** Emits every basic block: instructions and the block terminator. */
     private void appendBody(StringBuilder b, IrMethod ir) {
@@ -202,9 +243,32 @@ public final class CppWriter {
             return ";";
         }
         if (o.startsWith("move-result")) {
-            return dst + " = " + valueVar(d.getOperands().isEmpty() ? null : d.getOperands().get(0), ir) + ";";
+            String rv = d.getOperands().isEmpty() ? null : valueVar(d.getOperands().get(0), ir);
+            if (rv == null) {
+                return dst + " = NULL;";
+            }
+            String dv = d.getValue() == null ? null : d.getValue().getType();
+            String sv = d.getOperands().get(0).getType();
+            if (dv != null && sv != null && !dv.equals(sv)) {
+                rv = "(" + Types.c(dv) + ")(intptr_t)" + rv;
+            }
+            return dst + " = " + rv + ";";
         }
         if (o.startsWith("move") && !o.startsWith("move-result") && !o.equals("move-exception")) {
+            Value src = null;
+            if (r.length > 1) {
+                for (Value v : d.getOperands()) {
+                    if (v instanceof Variable && ((Variable) v).getRegister() == r[1]) {
+                        src = v;
+                        break;
+                    }
+                }
+            }
+            String dct = slotTypes.get(dst);
+            String sct = src instanceof Variable ? slotTypes.get(var((Variable) src, ir)) : null;
+            if (dct != null && sct != null && !dct.equals(sct)) {
+                b = "(" + dct + ")(intptr_t)" + b;
+            }
             return dst + " = " + b + ";";
         }
         if (o.equals("move-exception")) {
@@ -414,31 +478,32 @@ public final class CppWriter {
             return dst + " = NULL;";
         }
         String e = t.substring(1);
+        String sz = "(jsize)(intptr_t)" + size;
         if ("Z".equals(e)) {
-            return dst + " = env->NewBooleanArray((jsize)" + size + ");";
+            return dst + " = env->NewBooleanArray(" + sz + ");";
         }
         if ("B".equals(e)) {
-            return dst + " = env->NewByteArray((jsize)" + size + ");";
+            return dst + " = env->NewByteArray(" + sz + ");";
         }
         if ("C".equals(e)) {
-            return dst + " = env->NewCharArray((jsize)" + size + ");";
+            return dst + " = env->NewCharArray(" + sz + ");";
         }
         if ("S".equals(e)) {
-            return dst + " = env->NewShortArray((jsize)" + size + ");";
+            return dst + " = env->NewShortArray(" + sz + ");";
         }
         if ("I".equals(e)) {
-            return dst + " = env->NewIntArray((jsize)" + size + ");";
+            return dst + " = env->NewIntArray(" + sz + ");";
         }
         if ("J".equals(e)) {
-            return dst + " = env->NewLongArray((jsize)" + size + ");";
+            return dst + " = env->NewLongArray(" + sz + ");";
         }
         if ("F".equals(e)) {
-            return dst + " = env->NewFloatArray((jsize)" + size + ");";
+            return dst + " = env->NewFloatArray(" + sz + ");";
         }
         if ("D".equals(e)) {
-            return dst + " = env->NewDoubleArray((jsize)" + size + ");";
+            return dst + " = env->NewDoubleArray(" + sz + ");";
         }
-        return dst + " = env->NewObjectArray((jsize)" + size + ", env->FindClass(\""
+        return dst + " = env->NewObjectArray(" + sz + ", env->FindClass(\""
                 + Types.descToClass(e) + "\"), NULL);";
     }
 
@@ -486,7 +551,7 @@ public final class CppWriter {
                     + "env->GetObjectArrayElement((jobjectArray)" + arr + ", (jsize)(intptr_t)" + idx + ");";
         }
         return "env->Get" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)(intptr_t)" + idx
-                + ", 1, &" + dst + ");";
+                + ", 1, (" + elemType(s) + "*)&" + dst + ");";
     }
 
     /** Emits a primitive or object array write. */
@@ -497,7 +562,7 @@ public final class CppWriter {
                     + ", (jobject)(intptr_t)" + val + ");";
         }
         return "env->Set" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)(intptr_t)" + idx
-                + ", 1, &" + val + ");";
+                + ", 1, (" + elemType(s) + "*)&" + val + ");";
     }
 
     /** JNI array accessor suffix implied by the opcode. */
@@ -522,6 +587,18 @@ public final class CppWriter {
         if ("Float".equals(s)) return "jfloatArray";
         if ("Double".equals(s)) return "jdoubleArray";
         return "jintArray";
+    }
+
+    /** JNI element type for a primitive accessor suffix. */
+    private String elemType(String s) {
+        if ("Boolean".equals(s)) return "jboolean";
+        if ("Byte".equals(s)) return "jbyte";
+        if ("Char".equals(s)) return "jchar";
+        if ("Short".equals(s)) return "jshort";
+        if ("Long".equals(s)) return "jlong";
+        if ("Float".equals(s)) return "jfloat";
+        if ("Double".equals(s)) return "jdouble";
+        return "jint";
     }
 
     /** Emits an instance or static field read. */
@@ -691,8 +768,13 @@ public final class CppWriter {
         for (Phi p : to.phis) {
             Value in = p.getOperands().get(from);
             if (in != null) {
-                b.append("v").append(ir.ra.get(p)).append(" = ")
-                 .append("(").append(Types.c(p.getType())).append(")")
+                String t = Types.c(p.getType());
+                if (!p.getType().equals(in.getType())) {
+                    t = "(" + t + ")(intptr_t)";
+                } else {
+                    t = "(" + t + ")";
+                }
+                b.append("v").append(ir.ra.get(p)).append(" = ").append(t)
                  .append(valueVar(in, ir)).append("; ");
             }
         }

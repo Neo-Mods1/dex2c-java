@@ -256,7 +256,11 @@ public final class SsaBuilder {
         if (writes) {
             Variable out = write(dest);
             d.setValue(out);
-            out.refineType(typeFor(d));
+            String tf = typeFor(d);
+            out.refineType(tf);
+            if (tf == null && !d.getOperands().isEmpty()) {
+                out.refineType(d.getOperands().get(0).getType());
+            }
             for (int i = 1; i < r.length; i++) {
                 d.addOperand(read(r[i]));
             }

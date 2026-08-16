@@ -51,17 +51,20 @@ final class NdkProject {
         Files.createDirectories(nc);
 
         Files.write(project.resolve("jni").resolve("Android.mk"),
-                androidMk(libName).getBytes(StandardCharsets.UTF_8));
+                androidMk(libName, dynamic).getBytes(StandardCharsets.UTF_8));
         Files.write(project.resolve("jni").resolve("Application.mk"),
                 applicationMk(abis, minSdk).getBytes(StandardCharsets.UTF_8));
         Files.write(nc.resolve("NT.h"), ntH().getBytes(StandardCharsets.UTF_8));
         Files.write(nc.resolve("NT.cpp"), ntCpp().getBytes(StandardCharsets.UTF_8));
+        Files.write(nc.resolve("dex2c.hpp"), dex2cHpp(compiled, dynamic).getBytes(StandardCharsets.UTF_8));
         Files.write(nc.resolve("DynamicRegister.cpp"),
                 dynamicRegister(dynamic, compiled).getBytes(StandardCharsets.UTF_8));
-        Files.write(nc.resolve("dex2c.cpp"), dex2cSource.getBytes(StandardCharsets.UTF_8));
+        Files.write(nc.resolve("export.map"), exportMap(dynamic).getBytes(StandardCharsets.UTF_8));
+        Files.write(nc.resolve("dex2c.cpp"),
+                ("#include \"dex2c.hpp\"\n\n" + dex2cSource).getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String androidMk(String libName) {
+    private static String androidMk(String libName, boolean dynamic) {
         return "LOCAL_PATH := $(call my-dir)\n"
                 + "\n"
                 + "include $(CLEAR_VARS)\n"
@@ -70,6 +73,7 @@ final class NdkProject {
                 + "LOCAL_CPPFLAGS  := -fno-exceptions -fno-rtti\n"
                 + "LOCAL_LDLIBS    := -llog\n"
                 + "LOCAL_SRC_FILES := $(call all-cpp-files-under, nc)\n"
+                + "LOCAL_LDFLAGS   := -Wl,--version-script=$(LOCAL_PATH)/nc/export.map\n"
                 + "include $(BUILD_SHARED_LIBRARY)\n";
     }
 
@@ -92,7 +96,9 @@ final class NdkProject {
     }
 
     private static String ntCpp() {
-        return "#include \"NT.h\"\n"
+        return "#include <jni.h>\n"
+                + "\n"
+                + "#include \"NT.h\"\n"
                 + "\n"
                 + "JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {\n"
                 + "    JNIEnv *env = NULL;\n"
@@ -107,9 +113,39 @@ final class NdkProject {
                 + "}\n";
     }
 
+    /** Declarations of every compiled function, consumed by Dex2C.cpp and DynamicRegister.cpp. */
+    private static String dex2cHpp(List<Method> compiled, boolean dynamic) {
+        StringBuilder b = new StringBuilder("#ifndef DEX2C_HPP_\n"
+                + "#define DEX2C_HPP_\n"
+                + "\n"
+                + "#include <jni.h>\n"
+                + "\n"
+                + (dynamic ? "" : "extern \"C\" {\n"));
+        if (compiled != null) {
+            for (Method m : compiled) {
+                b.append(Types.c(m.getReturnType())).append(" ")
+                 .append(CppWriter.JniNames.name(m)).append(signature(m)).append(";\n");
+            }
+        }
+        return b.append(dynamic ? "" : "}\n").append("\n#endif\n").toString();
+    }
+
+    /** GNU ld version script: only the listed symbols stay in the dynamic symbol table. */
+    private static String exportMap(boolean dynamic) {
+        return "{\n"
+                + "  global:\n"
+                + "    JNI_OnLoad;\n"
+                + (dynamic ? "" : "    Java_*;\n")
+                + "  local:\n"
+                + "    *;\n"
+                + "};\n";
+    }
+
     private static String dynamicRegister(boolean dynamic, List<Method> compiled) {
         if (!dynamic || compiled == null || compiled.isEmpty()) {
-            return "#include \"NT.h\"\n"
+            return "#include <jni.h>\n"
+                    + "\n"
+                    + "#include \"NT.h\"\n"
                     + "\n"
                     + "const char *dynamic_register_compile_methods(JNIEnv *env) { return NULL; }\n";
         }
@@ -117,15 +153,8 @@ final class NdkProject {
         for (Method m : compiled) {
             byClass.computeIfAbsent(Types.descToClass(m.getDefiningClass()), k -> new ArrayList<>()).add(m);
         }
-        StringBuilder b = new StringBuilder("#include \"NT.h\"\n\n");
-        for (Map.Entry<String, List<Method>> e : byClass.entrySet()) {
-            for (Method m : e.getValue()) {
-                b.append("extern ").append(Types.c(m.getReturnType()))
-                 .append(" ").append(CppWriter.JniNames.name(m))
-                 .append(signature(m)).append(";\n");
-            }
-        }
-        b.append("\nconst char *dynamic_register_compile_methods(JNIEnv *env) {\n");
+        StringBuilder b = new StringBuilder("#include <jni.h>\n\n#include \"dex2c.hpp\"\n\n");
+        b.append("const char *dynamic_register_compile_methods(JNIEnv *env) {\n");
         b.append("    jclass clazz;\n");
         int idx = 0;
         for (Map.Entry<String, List<Method>> e : byClass.entrySet()) {
