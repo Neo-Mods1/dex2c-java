@@ -40,6 +40,6 @@ public final class LandingPad extends IrBasicBlock {
 
     @Override
     public String label() {
-        return "EX_LandingPad_" + source.num;
+        return "EX_LandingPad_" + Integer.toHexString(Math.max(source.start, 0));
     }
 }
