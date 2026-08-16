@@ -1,6 +1,7 @@
 package bin.nt.dex2c.build;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -68,16 +69,14 @@ public final class Build {
         String appClass = resolveAppClass(man);
         boolean nativeStage = cli.nativeEnabled == null || cli.nativeEnabled;
         ClassDef loader = null;
-        byte[] manifestOverride = null;
+        String appOverride = null;
         if (appClass == null) {
             if (!nativeStage) {
                 throw new IOException("no Application class; enable native protection or use --no-build");
             }
             String loaderType = loaderType(man, cli.customLoader, dexes);
             loader = DexRewriter.loaderClass(loaderType, libName);
-            manifestOverride = ManifestPatcher.patchApplicationName(
-                    BinaryXml.rawManifest(input),
-                    loaderType.substring(1, loaderType.length() - 1).replace('/', '.'));
+            appOverride = loaderType.substring(1, loaderType.length() - 1).replace('/', '.');
             if (cli.excludes == null) {
                 cli.excludes = new ArrayList<>();
             }
@@ -155,11 +154,11 @@ public final class Build {
         }
 
         Path unsigned = work.resolve("unsigned.apk");
-        ApkRebuilder.rebuild(input, unsigned, newDexes, libs, libName, manifestOverride);
+        assembleWithApkTool(resolveApktool(cli.apktool), input, work, unsigned,
+                newDexes, libs, appOverride);
         List<String> zipalign = new ArrayList<>();
         zipalign.add(ToolRunner.findTool(cli.zipalign, "zipalign"));
         zipalign.add("-f");
-        zipalign.add("-p");
         zipalign.add("-P");
         zipalign.add("16");
         zipalign.add("4");
@@ -331,5 +330,77 @@ public final class Build {
             }
         }
         return r.isEmpty() ? Arrays.asList("arm64-v8a", "armeabi-v7a") : r;
+    }
+
+    /**
+     * Resolves the apktool jar: {@code --apktool}, {@code APKTOOL_JAR}, or an
+     * {@code apktool} executable on PATH.
+     */
+    static String resolveApktool(String flag) throws IOException {
+        if (flag != null && !"PATH".equals(flag)) {
+            Path t = Paths.get(flag);
+            if (Files.isRegularFile(t)) {
+                return t.toString();
+            }
+            throw new IOException("apktool jar not found at " + flag);
+        }
+        String env = System.getenv("APKTOOL_JAR");
+        if (env != null && Files.isRegularFile(Paths.get(env))) {
+            return env;
+        }
+        String path = System.getenv("PATH");
+        if (path != null) {
+            for (String dir : path.split(java.io.File.pathSeparator)) {
+                if (dir.isEmpty()) {
+                    continue;
+                }
+                Path t = Paths.get(dir, "apktool");
+                if (Files.isExecutable(t)) {
+                    return t.toString();
+                }
+            }
+        }
+        throw new IOException("apktool not found; pass --apktool or set APKTOOL_JAR");
+    }
+
+    /**
+     * Rebuilds the APK with apktool: decodes with sources kept raw, splices
+     * the rewritten dex files and the compiled JNI libraries, patches the
+     * decoded manifest, and rebuilds the archive.
+     */
+    static void assembleWithApkTool(String apktool, Path input, Path work, Path out,
+                                    Map<String, Path> dexes, Map<String, Path> libs,
+                                    String appOverride) throws IOException {
+        Path dir = work.resolve("apktool-out");
+        ToolRunner.run(List.of("java", "-jar", apktool, "d", "-f", "-s",
+                input.toString(), "-o", dir.toString()));
+        for (Map.Entry<String, Path> e : dexes.entrySet()) {
+            Path dst = dir.resolve(e.getKey());
+            if (Files.isRegularFile(dst)) {
+                Files.copy(e.getValue(), dst, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
+        for (Map.Entry<String, Path> e : libs.entrySet()) {
+            Path d = dir.resolve("lib").resolve(e.getKey());
+            Files.createDirectories(d);
+            Files.copy(e.getValue(), d.resolve(e.getValue().getFileName()),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+        if (appOverride != null) {
+            patchManifestApp(dir.resolve("AndroidManifest.xml"), appOverride);
+        }
+        ToolRunner.run(List.of("java", "-jar", apktool, "b", dir.toString(),
+                "-o", out.toString()));
+    }
+
+    /** Points the decoded manifest's application tag at the loader class. */
+    static void patchManifestApp(Path manifest, String dotted) throws IOException {
+        String xml = new String(Files.readAllBytes(manifest), StandardCharsets.UTF_8);
+        String patched = xml.replaceFirst(
+                "(<application[^>]*?\\bandroid:name=\")([^\"]*)(\")", "$1" + dotted + "$3");
+        if (patched.equals(xml)) {
+            throw new IOException("application android:name not found in " + manifest);
+        }
+        Files.write(manifest, patched.getBytes(StandardCharsets.UTF_8));
     }
 }

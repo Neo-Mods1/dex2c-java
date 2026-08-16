@@ -129,6 +129,8 @@ public final class Main {
         public String libName;
         public String customLoader;
         public String ndkDir;
+
+        public String apktool;
         public String zipalign;
         public String apksigner;
         public String keystore;
@@ -206,6 +208,9 @@ public final class Main {
                         break;
                     case "--ndk-dir":
                         c.ndkDir = a[++i];
+                        break;
+                    case "--apktool":
+                        c.apktool = a[++i];
                         break;
                     case "--zipalign":
                         c.zipalign = a[++i];
@@ -387,6 +392,7 @@ public final class Main {
                     + "  --key-pass <pass>           Key password (default: android)\n"
                     + "  --zipalign <path>           zipalign binary (default: from build-tools)\n"
                     + "  --apksigner <path>          apksigner binary (default: from build-tools)\n"
+                    + "  --apktool <jar>             apktool jar for APK assembly (default: $APKTOOL_JAR or apktool)\n"
                     + "  --sign-v1/--no-sign-v1      apksigner v1 scheme (default: v1+v2+v3)\n"
                     + "  --sign-v2/--no-sign-v2      apksigner v2 scheme\n"
                     + "  --sign-v3/--no-sign-v3      apksigner v3 scheme\n"

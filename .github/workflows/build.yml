@@ -26,6 +26,12 @@ jobs:
       - name: Build fat JAR and test classes
         run: ./gradlew clean shadowJar testClasses --no-daemon
 
+      - name: Download apktool
+        run: |
+          curl -sL -o apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar
+          echo "APKTOOL_JAR=$PWD/apktool.jar" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)" >> $GITHUB_PATH
+
       - name: Smoke tests
         run: |
           java -cp build/classes/java/test:build/libs/dex2c-cli-2.0.0-all.jar bin.nt.dex2c.PortSmokeTest
@@ -47,8 +53,9 @@ jobs:
           unzip -l build/dex2c-out.apk | grep -qE "lib/(arm64-v8a|armeabi-v7a|x86_64|x86)/libstub\.so" || { echo "no compiled lib in apk"; exit 1; }
           NO_SIZE=$(unzip -l build/dex2c-out.apk | grep -E "lib/.*/libstub\.so" | awk '{print $1}' | head -1)
           [ "$NO_SIZE" -gt 100000 ] || { echo "libstub.so too small ($NO_SIZE bytes) - compiled methods missing"; exit 1; }
+          unzip -lv build/dex2c-out.apk | grep -E "lib/.*/libstub\.so" | grep -q "Stored" || { echo "libstub.so must be stored uncompressed for page alignment"; exit 1; }
           ZALIGN=$(ls $ANDROID_HOME/build-tools/*/zipalign | tail -1)
-          "$ZALIGN" -c -p -P 16 4 build/dex2c-out.apk
+          "$ZALIGN" -c -P 16 4 build/dex2c-out.apk
           APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
           "$APKSIGNER" verify build/dex2c-out.apk
           java -jar build/libs/dex2c-cli-2.0.0-all.jar --command inspect --input build/dex2c-out.apk | grep -c "native" || true
