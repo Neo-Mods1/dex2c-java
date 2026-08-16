@@ -20,6 +20,8 @@ import com.android.tools.smali.dexlib2.dexbacked.DexBackedDexFile;
 import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.tools.smali.dexlib2.iface.Method;
 
+import bin.nt.dex2c.build.Config;
+
 /**
  * Command-line entry point for {@code dex2c-cli}.
  *
@@ -53,7 +55,7 @@ public final class Main {
         }
         Path config = Cli.configPath(cli.configPath);
         if (config != null) {
-            cli.apply(bin.nt.dex2c.build.Config.load(config));
+            cli.apply(Config.load(config));
         }
         if (cli.input == null) {
             throw new IllegalArgumentException("Missing --input");
