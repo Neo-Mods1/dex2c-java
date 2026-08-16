@@ -121,6 +121,7 @@ final class NdkProject {
                 + "#define DEX2C_HPP_\n"
                 + "\n"
                 + "#include <jni.h>\n"
+                + "#include <stdint.h>\n"
                 + "\n"
                 + (dynamic ? "" : "extern \"C\" {\n"));
         if (compiled != null) {
