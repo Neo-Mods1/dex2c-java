@@ -100,6 +100,8 @@ final class NdkProject {
                 + "\n"
                 + "#include \"NT.h\"\n"
                 + "\n"
+                + "extern \"C\" {\n"
+                + "\n"
                 + "JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {\n"
                 + "    JNIEnv *env = NULL;\n"
                 + "    if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) != JNI_OK) {\n"
@@ -110,6 +112,8 @@ final class NdkProject {
                 + "        return JNI_ERR;\n"
                 + "    }\n"
                 + "    return JNI_VERSION_1_6;\n"
+                + "}\n"
+                + "\n"
                 + "}\n";
     }
 
