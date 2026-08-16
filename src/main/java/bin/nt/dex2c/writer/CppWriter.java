@@ -1,5 +1,6 @@
 package bin.nt.dex2c.writer;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
