@@ -325,7 +325,7 @@ public final class CppWriter {
                     + "\"))) { env->ThrowNew(env->FindClass(\"java/lang/ClassCastException\"), \"check-cast\"); goto EX_UnwindBlock; }";
         }
         if (o.equals("instance-of")) {
-            return dst + " = " + assignCast(d.getValue().getType()) + "(" + a
+            return dst + " = " + assignCast(dst) + "(" + a
                     + " && env->IsInstanceOf((jobject)" + a + ", env->FindClass(\""
                     + Types.descToClass(refType(d)) + "\")) ? 1 : 0);";
         }
@@ -547,7 +547,7 @@ public final class CppWriter {
     private String arrayGet(DexInstruction d, String dst, String arr, String idx) {
         String s = arrayKind(d);
         if ("Object".equals(s)) {
-            return dst + " = " + assignCast(d.getValue().getType())
+            return dst + " = " + assignCast(dst)
                     + "env->GetObjectArrayElement((jobjectArray)" + arr + ", (jsize)(intptr_t)" + idx + ");";
         }
         return "env->Get" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)(intptr_t)" + idx
@@ -613,7 +613,7 @@ public final class CppWriter {
         String id = "env->Get" + (stat ? "Static" : "") + "FieldID(env->FindClass(\"" + cls + "\"), \""
                 + name + "\", \"" + sig + "\")";
         String suf = Types.jniSuffix(f.getType());
-        return dst + " = " + assignCast(d.getValue().getType())
+        return dst + " = " + assignCast(dst)
                 + "env->Get" + (stat ? "Static" : "") + suf + "Field("
                 + (stat ? "env->FindClass(\"" + cls + "\")" : "(jobject)(intptr_t)" + obj)
                 + ", " + id + ");";
@@ -667,12 +667,13 @@ public final class CppWriter {
             return "env->" + call + suf + "Method(" + obj + ", " + expr
                     + (args.length() > 0 ? ", " + args : "") + ");";
         }
-        return result + " = " + assignCast(d.getValue().getType()) + callExpr + ";";
+        return result + " = " + assignCast(result) + callExpr + ";";
     }
 
-    /** C-style cast from a JNI jobject/pointer result to the SSA value's type. */
-    private String assignCast(String t) {
-        return Types.ref(t) ? "(jobject)(intptr_t)" : "(" + Types.c(t) + ")(intptr_t)";
+    /** C-style cast to the declared C++ type of an emitted variable. */
+    private String assignCast(String dst) {
+        String dct = slotTypes.get(dst);
+        return dct != null ? "(" + dct + ")(intptr_t)" : "(jobject)(intptr_t)";
     }
 
     /** Emits the control-flow terminator of a basic block. */
