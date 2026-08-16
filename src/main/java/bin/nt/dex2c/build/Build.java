@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -62,9 +63,15 @@ public final class Build {
         int minSdk = cli.minSdk > 0 ? cli.minSdk : 21;
 
         List<Path> dexes = Main.InputDexes.extract(input, work.resolve("dex"));
+        BinaryXml.Manifest man = BinaryXml.read(input);
+        String appClass = resolveAppClass(man);
+        if (appClass == null) {
+            throw new IOException("AndroidManifest.xml has no application android:name; cannot inject System.loadLibrary");
+        }
         List<Method> compiled = new ArrayList<>();
         StringBuilder cpp = new StringBuilder(Compiler.HEADER);
-        Compiler compiler = new Compiler(cli);
+        boolean nativeStage = cli.nativeEnabled == null || cli.nativeEnabled;
+        Compiler compiler = new Compiler(cli, nativeStage && targeted(cli, appClass) ? appClass : null);
         for (Path dex : dexes) {
             DexBackedDexFile df = DexFileFactory.loadDexFile(dex.toFile(), null);
             compiler.compileInto(df, cpp, compiled);
@@ -79,16 +86,13 @@ public final class Build {
         NdkProject.write(proj, libName, minSdk, abis, cli.dynamicRegister, compiled,
                 Compiler.mappable(cpp.toString()));
 
-        if (cli.noBuild) {
+        if (cli.noBuild || !nativeStage) {
             System.out.println("build: source only, project at " + proj.toAbsolutePath());
-            return;
-        }
-        ToolRunner.run(List.of(ToolRunner.findNdkBuild(cli.ndkDir), "-C", proj.toString()));
-
-        BinaryXml.Manifest man = BinaryXml.read(input);
-        String appClass = resolveAppClass(man);
-        if (appClass == null) {
-            throw new IOException("AndroidManifest.xml has no application android:name; cannot inject System.loadLibrary");
+            if (cli.noBuild) {
+                return;
+            }
+        } else {
+            ToolRunner.run(List.of(ToolRunner.findNdkBuild(cli.ndkDir), "-C", proj.toString()));
         }
 
         Set<String> compiledSet = new HashSet<>();
@@ -99,9 +103,13 @@ public final class Build {
         int di = 0;
         for (Path dex : dexes) {
             String dexName = dex.getFileName().toString();
-            NativeMarker.mark(dex, work.resolve("new-" + dexName), work.resolve("smali" + di++),
-                    compiledSet, appClass, libName);
-            newDexes.put(dexName, work.resolve("new-" + dexName));
+            if (nativeStage) {
+                NativeMarker.mark(dex, work.resolve("new-" + dexName), work.resolve("smali" + di++),
+                        compiledSet, appClass, libName);
+                newDexes.put(dexName, work.resolve("new-" + dexName));
+            } else {
+                newDexes.put(dexName, dex);
+            }
         }
 
         Map<String, Path> libs = new LinkedHashMap<>();
@@ -134,6 +142,18 @@ public final class Build {
             sign.add("pass:" + (cli.keyPass != null ? cli.keyPass : "android"));
             sign.add("--min-sdk-version");
             sign.add(String.valueOf(minSdk));
+            if (cli.signV1 != null) {
+                sign.add("--v1-signing-enabled");
+                sign.add(String.valueOf(cli.signV1));
+            }
+            if (cli.signV2 != null) {
+                sign.add("--v2-signing-enabled");
+                sign.add(String.valueOf(cli.signV2));
+            }
+            if (cli.signV3 != null) {
+                sign.add("--v3-signing-enabled");
+                sign.add(String.valueOf(cli.signV3));
+            }
             sign.add("--out");
             sign.add(outApk.toString());
             sign.add(aligned.toString());
@@ -141,6 +161,26 @@ public final class Build {
         }
         System.out.println("build: wrote " + outApk.toAbsolutePath()
                 + " (" + compiled.size() + " native methods, libs=" + libs.keySet() + ")");
+    }
+
+    /**
+     * Decides whether the Application class is itself a compile target, in
+     * which case its {@code <clinit>} is spared so the injected
+     * {@code System.loadLibrary} keeps running from the DEX.
+     *
+     * @param cli      the CLI options
+     * @param appClass the Application class type ({@code L...;})
+     * @return {@code true} when the class passes the filters
+     */
+    static boolean targeted(Main.Cli cli, String appClass) {
+        if (cli.excludes != null) {
+            for (String rx : cli.excludes) {
+                if (Pattern.compile(rx).matcher(appClass).find()) {
+                    return false;
+                }
+            }
+        }
+        return cli.filter == null || Pattern.compile(cli.filter).matcher(appClass).find();
     }
 
     /** Resolves the Application class descriptor, handling relative names. */

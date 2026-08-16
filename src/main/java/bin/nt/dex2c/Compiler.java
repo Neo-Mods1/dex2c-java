@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -52,13 +53,35 @@ public final class Compiler {
     private final Pattern filter;
     private final Pattern classFilter;
     private final Pattern methodFilter;
+    private final List<Pattern> keepFilters;
+    private final String skipClinitClass;
 
     /** Creates the pass with the given CLI filters. */
     public Compiler(Main.Cli c) {
+        this(c, null);
+    }
+
+    /**
+     * Creates the pass with the given CLI filters, optionally sparing the
+     * {@code <clinit>} of the Application class from compilation so the
+     * injected {@code System.loadLibrary} call keeps running from the DEX.
+     *
+     * @param c                the CLI options
+     * @param skipClinitClass  the Application class type ({@code L...;}) whose
+     *                         {@code <clinit>} is never compiled, or {@code null}
+     */
+    public Compiler(Main.Cli c, String skipClinitClass) {
         cli = c;
         filter = p(c.filter);
         classFilter = p(c.classFilter);
         methodFilter = p(c.methodFilter);
+        this.skipClinitClass = skipClinitClass;
+        keepFilters = new ArrayList<>();
+        if (c.excludes != null) {
+            for (String x : c.excludes) {
+                keepFilters.add(p(x));
+            }
+        }
     }
 
     private static Pattern p(String s) {
@@ -192,7 +215,16 @@ public final class Compiler {
         if (m.getImplementation() == null) {
             return false;
         }
+        if (skipClinitClass != null && skipClinitClass.equals(c.getType())
+                && "<clinit>".equals(m.getName())) {
+            return false;
+        }
         String x = c.getType() + "->" + m.getName() + descriptor(m);
+        for (Pattern keep : keepFilters) {
+            if (keep.matcher(x).find()) {
+                return false;
+            }
+        }
         return (filter == null || filter.matcher(x).find())
                 && (classFilter == null || classFilter.matcher(c.getType()).find())
                 && (methodFilter == null || methodFilter.matcher(m.getName()).find());

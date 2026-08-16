@@ -180,6 +180,44 @@ The `build` command discovers `ndk-build` from `--ndk-dir` or `ANDROID_NDK_HOME`
 
 The Application class is located from the manifest's `android:name`; the APK must declare one so the library load can be injected.
 
+### Config file
+
+A protector.cfg-style INI config fills every unset option and is loaded
+automatically from `protector.cfg` in the CWD — or from any path with
+`--config <file>` (the same file works for both dex2c-cli and the reference
+Python `protect.py`; unknown keys are ignored). Command-line arguments always
+override the config. Relative paths resolve against the CWD.
+
+```ini
+[protection]
+native_lib = "NT1"
+
+[paths]
+input_apk = ""        # or use -i
+output_apk = ""       # or use -o
+ndk_dir = ""
+apksigner = ""
+zipalign = ""
+
+[signing]
+keystore = "nt-protector/release.jks"
+alias = "release"
+keystore_pass = "secret"
+store_pass = "secret"
+v1_enabled = true
+v2_enabled = true
+v3_enabled = true
+
+[filter]
+include = [ "bin/nt/**", ]   # pkg paths; '**' crosses segments, '*' one segment
+exclude = [ "bin/nt/main/App", ]
+```
+
+`[filter]` rules translate to dex2c method filters (includes) and keep-rules
+(excludes). When the Application class itself is a compile target, its
+`<clinit>` is spared from compilation so the injected `System.loadLibrary`
+call keeps running from the DEX.
+
 ## Testing
 
 The test suite covers the IR pipeline (graph, SSA, phi cleanup) and the C++ writer end-to-end:

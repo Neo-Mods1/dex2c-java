@@ -51,6 +51,10 @@ public final class Main {
             System.out.println("dex2c-cli " + VERSION);
             return;
         }
+        Path config = Cli.configPath(cli.configPath);
+        if (config != null) {
+            cli.apply(bin.nt.dex2c.build.Config.load(config));
+        }
         if (cli.input == null) {
             throw new IllegalArgumentException("Missing --input");
         }
@@ -133,6 +137,12 @@ public final class Main {
         public int minSdk = 21;
         public boolean noBuild;
         public boolean disableSigning;
+        public String configPath;
+        public List<String> excludes;
+        public Boolean signV1;
+        public Boolean signV2;
+        public Boolean signV3;
+        public Boolean nativeEnabled;
 
         private Cli() {
         }
@@ -224,6 +234,34 @@ public final class Main {
                     case "--disable-signing":
                         c.disableSigning = true;
                         break;
+                    case "-c":
+                    case "--config":
+                        c.configPath = a[++i];
+                        break;
+                    case "--exclude":
+                        if (c.excludes == null) {
+                            c.excludes = new ArrayList<>();
+                        }
+                        c.excludes.add(a[++i]);
+                        break;
+                    case "--sign-v1":
+                        c.signV1 = Boolean.TRUE;
+                        break;
+                    case "--no-sign-v1":
+                        c.signV1 = Boolean.FALSE;
+                        break;
+                    case "--sign-v2":
+                        c.signV2 = Boolean.TRUE;
+                        break;
+                    case "--no-sign-v2":
+                        c.signV2 = Boolean.FALSE;
+                        break;
+                    case "--sign-v3":
+                        c.signV3 = Boolean.TRUE;
+                        break;
+                    case "--no-sign-v3":
+                        c.signV3 = Boolean.FALSE;
+                        break;
                     default:
                         if (!x.startsWith("-") && c.input == null) {
                             c.input = x;
@@ -235,6 +273,83 @@ public final class Main {
             return c;
         }
 
+        /** Loads the effective config: explicit {@code --config}, else {@code protector.cfg} in CWD when present. */
+        static Path configPath(String explicit) {
+            if (explicit != null) {
+                Path p = Paths.get(explicit);
+                if (!Files.isRegularFile(p)) {
+                    throw new IllegalArgumentException("Config file not found: " + explicit);
+                }
+                return p;
+            }
+            Path auto = Paths.get("protector.cfg");
+            return Files.isRegularFile(auto) ? auto.toAbsolutePath() : null;
+        }
+
+        /**
+         * Fills every unset option from the config file. Relative paths are
+         * resolved against the CWD, exactly like {@code protect.py}, so the
+         * same {@code protector.cfg} keeps working for both tools no matter
+         * where {@code --config} points.
+         *
+         * @param cfg the parsed configuration
+         */
+        void apply(Config cfg) {
+            nativeEnabled = cfg.nativeEnabled;
+            if (input == null && !cfg.inputApk.isEmpty()) {
+                input = resolve(cfg.inputApk);
+            }
+            if (output == null && !cfg.outputApk.isEmpty()) {
+                output = resolve(cfg.outputApk);
+            }
+            if (filter == null) {
+                filter = cfg.includeRegex();
+                if (excludes == null) {
+                    excludes = cfg.excludeRegexes();
+                } else {
+                    excludes = new ArrayList<>(excludes);
+                    excludes.addAll(cfg.excludeRegexes());
+                }
+            }
+            if (libName == null) {
+                libName = cfg.nativeLib;
+            }
+            if (ndkDir == null && !cfg.ndkDir.isEmpty()) {
+                ndkDir = resolve(cfg.ndkDir);
+            }
+            if (zipalign == null && !cfg.zipalign.isEmpty()) {
+                zipalign = resolve(cfg.zipalign);
+            }
+            if (apksigner == null && !cfg.apksigner.isEmpty()) {
+                apksigner = resolve(cfg.apksigner);
+            }
+            if (keystore == null && !cfg.keystore.isEmpty()) {
+                keystore = resolve(cfg.keystore);
+            }
+            if (alias == null) {
+                alias = cfg.alias;
+            }
+            if (ksPass == null) {
+                ksPass = cfg.keystorePass;
+            }
+            if (keyPass == null) {
+                keyPass = cfg.storePass;
+            }
+            if (signV1 == null) {
+                signV1 = cfg.v1Enabled;
+            }
+            if (signV2 == null) {
+                signV2 = cfg.v2Enabled;
+            }
+            if (signV3 == null) {
+                signV3 = cfg.v3Enabled;
+            }
+        }
+
+        private static String resolve(String p) {
+            return Paths.get(p).toAbsolutePath().toString();
+        }
+
         /** Prints usage information to stdout. */
         static void usage() {
             System.out.println("dex2c-cli - DEX/APK to JNI C++ source compiler\n"
@@ -242,8 +357,10 @@ public final class Main {
                     + "  -i, --input <apk|dex>       Input APK or DEX\n"
                     + "  -o, --output <dir|apk>      Output dir (compile) or APK file (build)\n"
                     + "  --filter <regex>            Method descriptor filter\n"
+                    + "  --exclude <regex>           Keep methods matched (repeatable)\n"
                     + "  --class <regex>             Class descriptor filter\n"
                     + "  --method <regex>            Method name filter\n"
+                    + "  -c, --config <file>         protector.cfg-style config (default: CWD protector.cfg)\n"
                     + "  --dynamic-register          Register natives via RegisterNatives\n"
                     + "  --command <compile|build|inspect>\n"
                     + "Build options:\n"
@@ -260,6 +377,9 @@ public final class Main {
                     + "  --key-pass <pass>           Key password (default: android)\n"
                     + "  --zipalign <path>           zipalign binary (default: from build-tools)\n"
                     + "  --apksigner <path>          apksigner binary (default: from build-tools)\n"
+                    + "  --sign-v1/--no-sign-v1      apksigner v1 scheme (default: v1+v2+v3)\n"
+                    + "  --sign-v2/--no-sign-v2      apksigner v2 scheme\n"
+                    + "  --sign-v3/--no-sign-v3      apksigner v3 scheme\n"
                     + "  -h, --help                  Show help\n");
         }
     }
