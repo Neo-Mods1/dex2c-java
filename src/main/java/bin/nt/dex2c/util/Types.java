@@ -133,7 +133,7 @@ public final class Types {
     /** Escapes a string for embedding in a C++ string literal. */
     public static String escape(String s) {
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
-                .replace("\r", "\\r").replace("\t", "\\t");
+                .replace("\r", "\\r").replace("\t", "\\t").replace("\u0000", "\\000");
     }
 
     /**

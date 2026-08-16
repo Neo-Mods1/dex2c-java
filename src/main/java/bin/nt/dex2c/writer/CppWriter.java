@@ -650,7 +650,7 @@ public final class CppWriter {
         return "env->Set" + (stat ? "Static" : "") + Types.jniSuffix(f.getType()) + "Field("
                 + (stat ? "env->FindClass(\"" + cls + "\")" : "(jobject)(intptr_t)" + obj)
                 + ", " + id + ", "
-                + (Types.ref(f.getType()) ? "(jobject)(intptr_t)" : "") + val + ");";
+                + (Types.ref(f.getType()) ? "(jobject)(intptr_t)" + val : castToParam(val, f.getType())) + ");";
     }
 
     /** Emits a method invocation, including range and static forms. */
