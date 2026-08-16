@@ -115,12 +115,16 @@ final class NativeMarker {
                 }
                 if (!injected && appClass != null && appClass.equals(clsType)
                         && !t.isEmpty() && !t.startsWith(".")) {
-                    out.add(inject(libName));
+                    String[] inj = inject(libName);
+                    out.add(inj[0]);
+                    out.add(inj[1]);
                     injected = true;
                 }
                 if (".end method".equals(t)) {
                     if (!injected && appClass != null && appClass.equals(clsType)) {
-                        out.add(inject(libName));
+                        String[] inj = inject(libName);
+                        out.add(inj[0]);
+                        out.add(inj[1]);
                         injected = true;
                     }
                     out.add(line);
