@@ -71,7 +71,7 @@ final class NdkProject {
                 + "LOCAL_CFLAGS    := -O2 -fvisibility=hidden\n"
                 + "LOCAL_CPPFLAGS  := -fno-exceptions -fno-rtti\n"
                 + "LOCAL_LDLIBS    := -llog\n"
-                + "LOCAL_SRC_FILES := $(call all-cpp-files-under, nc)\n"
+                + "LOCAL_SRC_FILES := nc/NT.cpp nc/DynamicRegister.cpp nc/dex2c.cpp\n"
                 + "include $(BUILD_SHARED_LIBRARY)\n";
     }
 

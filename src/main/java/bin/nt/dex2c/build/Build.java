@@ -156,13 +156,23 @@ public final class Build {
 
         Path unsigned = work.resolve("unsigned.apk");
         ApkRebuilder.rebuild(input, unsigned, newDexes, libs, libName, manifestOverride);
+        List<String> zipalign = new ArrayList<>();
+        zipalign.add(ToolRunner.findTool(cli.zipalign, "zipalign"));
+        zipalign.add("-f");
+        zipalign.add("-p");
+        zipalign.add("-P");
+        zipalign.add("16");
+        zipalign.add("4");
         if (cli.disableSigning) {
-            ToolRunner.run(List.of(ToolRunner.findTool(cli.zipalign, "zipalign"), "-f", "4",
-                    unsigned.toString(), outApk.toString()));
+            List<String> out = new ArrayList<>(zipalign);
+            out.add(unsigned.toString());
+            out.add(outApk.toString());
+            ToolRunner.run(out);
         } else {
             Path aligned = work.resolve("aligned.apk");
-            ToolRunner.run(List.of(ToolRunner.findTool(cli.zipalign, "zipalign"), "-f", "4",
-                    unsigned.toString(), aligned.toString()));
+            List<String> out = new ArrayList<>(zipalign);
+            out.add(unsigned.toString());
+            out.add(aligned.toString());
             List<String> sign = new ArrayList<>();
             sign.add(ToolRunner.findTool(cli.apksigner, "apksigner"));
             sign.add("sign");

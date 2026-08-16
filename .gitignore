@@ -6,3 +6,6 @@ reference/
 out/
 dex2c-out/
 !src/main/java/bin/nt/dex2c/build/
+dex2c-cli-2.0.0/
+build/
+.gradle/

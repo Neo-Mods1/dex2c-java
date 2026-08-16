@@ -43,7 +43,12 @@ jobs:
       - name: Verify built APK
         run: |
           unzip -t build/dex2c-out.apk > /dev/null
-          unzip -l build/dex2c-out.apk | grep -E "classes[0-9]*\.dex|lib/.+/lib.*\.so"
+          unzip -lv build/dex2c-out.apk | grep -E "classes[0-9]*\.dex|lib/.+/lib.*\.so"
+          unzip -l build/dex2c-out.apk | grep -qE "lib/(arm64-v8a|armeabi-v7a|x86_64|x86)/libstub\.so" || { echo "no compiled lib in apk"; exit 1; }
+          NO_SIZE=$(unzip -l build/dex2c-out.apk | grep -E "lib/.*/libstub\.so" | awk '{print $1}' | head -1)
+          [ "$NO_SIZE" -gt 100000 ] || { echo "libstub.so too small ($NO_SIZE bytes) - compiled methods missing"; exit 1; }
+          ZALIGN=$(ls $ANDROID_HOME/build-tools/*/zipalign | tail -1)
+          "$ZALIGN" -c -p -P 16 4 build/dex2c-out.apk
           APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | tail -1)
           "$APKSIGNER" verify build/dex2c-out.apk
           java -jar build/libs/dex2c-cli-2.0.0-all.jar --command inspect --input build/dex2c-out.apk | grep -c "native" || true

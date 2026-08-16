@@ -14,8 +14,11 @@ import java.util.zip.ZipOutputStream;
  * Rebuilds an APK from its original entries, swapping in rewritten DEX files
  * and appending the compiled native libraries under {@code lib/<abi>/}.
  *
- * <p>Every non-DEX entry is copied byte-for-byte (including its compression
- * method); alignment is repaired later by zipalign.</p>
+ * <p>Each original entry keeps its own compression method: stored entries
+ * (e.g. {@code resources.arsc}, required uncompressed on API 30+) stay
+ * stored and deflated entries stay deflated. The compiled libraries are
+ * always stored uncompressed so zipalign can page-align them. Alignment is
+ * repaired afterwards by zipalign.</p>
  */
 final class ApkRebuilder {
 
@@ -43,8 +46,13 @@ final class ApkRebuilder {
                 ZipEntry e = en.nextElement();
                 String name = e.getName();
                 Path repl = name.matches("classes\\d*\\.dex") ? dexReplace.get(name) : null;
+                boolean replaced = repl != null || (manifest != null && "AndroidManifest.xml".equals(name));
                 ZipEntry out = new ZipEntry(name);
-                out.setMethod(ZipEntry.DEFLATED);
+                out.setMethod(replaced ? ZipEntry.DEFLATED : e.getMethod());
+                if (!replaced && e.getMethod() == ZipEntry.STORED) {
+                    out.setSize(e.getSize());
+                    out.setCrc(e.getCrc());
+                }
                 zout.putNextEntry(out);
                 if (repl != null) {
                     Files.copy(repl, zout);
@@ -63,10 +71,26 @@ final class ApkRebuilder {
             for (Map.Entry<String, Path> l : libs.entrySet()) {
                 String entryName = "lib/" + l.getKey() + "/lib" + libName + ".so";
                 ZipEntry out = new ZipEntry(entryName);
+                out.setMethod(ZipEntry.STORED);
+                out.setSize(Files.size(l.getValue()));
+                out.setCrc(crc32(l.getValue()));
                 zout.putNextEntry(out);
                 Files.copy(l.getValue(), zout);
                 zout.closeEntry();
             }
         }
+    }
+
+    /** CRC-32 of a file, used for stored zip entries. */
+    private static long crc32(Path p) throws IOException {
+        java.util.zip.CRC32 c = new java.util.zip.CRC32();
+        byte[] buf = new byte[65536];
+        try (InputStream is = Files.newInputStream(p)) {
+            int n;
+            while ((n = is.read(buf)) > 0) {
+                c.update(buf, 0, n);
+            }
+        }
+        return c.getValue();
     }
 }
