@@ -50,7 +50,7 @@ public final class CppWriter {
         String jni = JniNames.name(m);
         StringBuilder b = new StringBuilder();
         appendFunctionComment(b, m);
-        appendSignature(b, m, jni);
+        appendSignature(b, m, jni, dynamic);
         appendVariableDeclarations(b, ir);
         appendBody(b, ir);
         appendLandingPads(b, ir);
@@ -68,9 +68,14 @@ public final class CppWriter {
     }
 
     /** Emits the JNI function signature and parameter list. */
-    private void appendSignature(StringBuilder b, Method m, String jni) {
-        b.append("extern \"C\" JNIEXPORT ").append(Types.c(m.getReturnType()))
-         .append(" JNICALL ").append(jni).append("(JNIEnv* env, ");
+    private void appendSignature(StringBuilder b, Method m, String jni, boolean dynamic) {
+        if (!dynamic) {
+            b.append("extern \"C\" JNIEXPORT ").append(Types.c(m.getReturnType()))
+             .append(" JNICALL ").append(jni).append("(JNIEnv* env, ");
+        } else {
+            b.append(Types.c(m.getReturnType())).append(" ").append(jni)
+             .append("(JNIEnv* env, ");
+        }
         b.append((m.getAccessFlags() & ACC_STATIC) != 0 ? "jclass clazz" : "jobject thiz");
         int pi = 0;
         for (CharSequence p : m.getParameterTypes()) {
@@ -111,7 +116,7 @@ public final class CppWriter {
             b.append("\n").append(lp.label())
              .append(":\n  pendingException = env->ExceptionOccurred(); env->ExceptionClear();\n");
             for (Map.Entry<String, IrBasicBlock> h : lp.handles.entrySet()) {
-                b.append("  if (pendingException && env->IsInstanceOf(env, pendingException, env->FindClass(\"")
+                b.append("  if (pendingException && env->IsInstanceOf(pendingException, env->FindClass(\"")
                  .append(Types.descToClass(h.getKey())).append("\"))) goto ")
                  .append(h.getValue().label()).append(";\n");
             }
@@ -135,7 +140,10 @@ public final class CppWriter {
         Set<Value> s = Collections.newSetFromMap(new IdentityHashMap<>());
         for (IrBasicBlock n : ir.irblocks) {
             s.addAll(n.varToDeclare);
-            s.addAll(n.phis);
+            for (Phi p : n.phis) {
+                s.add(p);
+                s.addAll(p.getOperands().values());
+            }
             for (Instruction i : n.instrList) {
                 if (i.getValue() != null) {
                     s.add(i.getValue());
@@ -144,6 +152,24 @@ public final class CppWriter {
             }
         }
         return s;
+    }
+
+    /** The SSA variable that the following {@code move-result} in the block will receive. */
+    private String moveResultVar(IrBasicBlock block, DexInstruction d, IrMethod ir) {
+        boolean past = false;
+        for (Instruction i : block.instrList) {
+            if (!past) {
+                if (i == d) {
+                    past = true;
+                }
+                continue;
+            }
+            if (((DexInstruction) i).opcode().startsWith("move-result")
+                    && i.getValue() instanceof Variable) {
+                return var((Variable) i.getValue(), ir);
+            }
+        }
+        return null;
     }
 
     /** JNI name of the local variable holding an SSA value. */
@@ -214,7 +240,11 @@ public final class CppWriter {
             return newArray(dst, b, refType(d)) + checkException(block, ir);
         }
         if (o.equals("filled-new-array") || o.equals("filled-new-array/range")) {
-            return filledArray(dst, r, refType(d), d, ir);
+            String dstNew = dst != null ? dst : moveResultVar(block, d, ir);
+            if (dstNew == null) {
+                return "/* filled-new-array discarded */";
+            }
+            return filledArray(dstNew, r, refType(d), d, ir);
         }
         if (o.equals("throw")) {
             return "pendingException = (jthrowable)" + a + "; env->Throw(pendingException);";
@@ -226,12 +256,13 @@ public final class CppWriter {
             return "env->MonitorExit((jobject)" + a + ");" + checkException(block, ir);
         }
         if (o.equals("check-cast")) {
-            return "if(" + a + " && !env->IsInstanceOf(env, (jobject)" + a + ", env->FindClass(\""
+            return "if(" + a + " && !env->IsInstanceOf((jobject)" + a + ", env->FindClass(\""
                     + Types.descToClass(refType(d))
                     + "\"))) { env->ThrowNew(env->FindClass(\"java/lang/ClassCastException\"), \"check-cast\"); goto EX_UnwindBlock; }";
         }
         if (o.equals("instance-of")) {
-            return dst + " = (" + a + " && env->IsInstanceOf(env, (jobject)" + a + ", env->FindClass(\""
+            return dst + " = " + assignCast(d.getValue().getType()) + "(" + a
+                    + " && env->IsInstanceOf((jobject)" + a + ", env->FindClass(\""
                     + Types.descToClass(refType(d)) + "\")) ? 1 : 0);";
         }
         if (o.startsWith("aget")) {
@@ -451,18 +482,22 @@ public final class CppWriter {
     private String arrayGet(DexInstruction d, String dst, String arr, String idx) {
         String s = arrayKind(d);
         if ("Object".equals(s)) {
-            return dst + " = env->GetObjectArrayElement((jobjectArray)" + arr + ", (jsize)" + idx + ");";
+            return dst + " = " + assignCast(d.getValue().getType())
+                    + "env->GetObjectArrayElement((jobjectArray)" + arr + ", (jsize)(intptr_t)" + idx + ");";
         }
-        return "env->Get" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)" + idx + ", 1, &" + dst + ");";
+        return "env->Get" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)(intptr_t)" + idx
+                + ", 1, &" + dst + ");";
     }
 
     /** Emits a primitive or object array write. */
     private String arrayPut(DexInstruction d, String val, String arr, String idx) {
         String s = arrayKind(d);
         if ("Object".equals(s)) {
-            return "env->SetObjectArrayElement((jobjectArray)" + arr + ", (jsize)" + idx + ", (jobject)" + val + ");";
+            return "env->SetObjectArrayElement((jobjectArray)" + arr + ", (jsize)" + idx
+                    + ", (jobject)(intptr_t)" + val + ");";
         }
-        return "env->Set" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)" + idx + ", 1, &" + val + ");";
+        return "env->Set" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)(intptr_t)" + idx
+                + ", 1, &" + val + ");";
     }
 
     /** JNI array accessor suffix implied by the opcode. */
@@ -498,11 +533,13 @@ public final class CppWriter {
         String cls = Types.descToClass(f.getDefiningClass());
         String name = Types.escape(f.getName());
         String sig = Types.escape(f.getType());
-        String id = "env->Get" + (stat ? "Static" : "") + "FieldID(env, env->FindClass(\"" + cls + "\"), \""
+        String id = "env->Get" + (stat ? "Static" : "") + "FieldID(env->FindClass(\"" + cls + "\"), \""
                 + name + "\", \"" + sig + "\")";
         String suf = Types.jniSuffix(f.getType());
-        return dst + " = env->Get" + (stat ? "Static" : "") + suf + "Field("
-                + (stat ? "env->FindClass(\"" + cls + "\")" : obj) + ", " + id + ");";
+        return dst + " = " + assignCast(d.getValue().getType())
+                + "env->Get" + (stat ? "Static" : "") + suf + "Field("
+                + (stat ? "env->FindClass(\"" + cls + "\")" : "(jobject)(intptr_t)" + obj)
+                + ", " + id + ");";
     }
 
     /** Emits an instance or static field write. */
@@ -514,10 +551,12 @@ public final class CppWriter {
         String cls = Types.descToClass(f.getDefiningClass());
         String name = Types.escape(f.getName());
         String sig = Types.escape(f.getType());
-        String id = "env->Get" + (stat ? "Static" : "") + "FieldID(env, env->FindClass(\"" + cls + "\"), \""
+        String id = "env->Get" + (stat ? "Static" : "") + "FieldID(env->FindClass(\"" + cls + "\"), \""
                 + name + "\", \"" + sig + "\")";
         return "env->Set" + (stat ? "Static" : "") + Types.jniSuffix(f.getType()) + "Field("
-                + (stat ? "env->FindClass(\"" + cls + "\")" : obj) + ", " + id + ", " + val + ");";
+                + (stat ? "env->FindClass(\"" + cls + "\")" : "(jobject)(intptr_t)" + obj)
+                + ", " + id + ", "
+                + (Types.ref(f.getType()) ? "(jobject)(intptr_t)" : "") + val + ");";
     }
 
     /** Emits a method invocation, including range and static forms. */
@@ -542,11 +581,21 @@ public final class CppWriter {
             }
             args.append(value(d.registers()[i], d, ir));
         }
-        String expr = "env->Get" + (stat ? "Static" : "") + "MethodID(env, env->FindClass(\"" + cls + "\"), \""
+        String expr = "env->Get" + (stat ? "Static" : "") + "MethodID(env->FindClass(\"" + cls + "\"), \""
                 + name + "\", \"" + sig + "\")";
         String result = d.getValue() instanceof Variable ? var((Variable) d.getValue(), ir) : null;
-        String callExpr = call + suf + "Method(" + obj + ", " + expr + (args.length() > 0 ? ", " + args : "") + ")";
-        return result == null ? callExpr + ";" : result + " = " + callExpr + ";";
+        String callExpr = "env->" + call + suf + "Method(" + obj + ", " + expr
+                + (args.length() > 0 ? ", " + args : "") + ")";
+        if (result == null) {
+            return "env->" + call + suf + "Method(" + obj + ", " + expr
+                    + (args.length() > 0 ? ", " + args : "") + ");";
+        }
+        return result + " = " + assignCast(d.getValue().getType()) + callExpr + ";";
+    }
+
+    /** C-style cast from a JNI jobject/pointer result to the SSA value's type. */
+    private String assignCast(String t) {
+        return Types.ref(t) ? "(jobject)" : "(" + Types.c(t) + ")(intptr_t)";
     }
 
     /** Emits the control-flow terminator of a basic block. */
@@ -566,7 +615,7 @@ public final class CppWriter {
             if ("V".equals(ir.returnType)) {
                 b.append("  return;\n");
             } else {
-                b.append("  return ").append(rv.isEmpty() ? "0" : rv).append(";\n");
+                b.append("  return ").append(rv.isEmpty() ? "0" : "(" + Types.c(ir.returnType) + ")(intptr_t)" + rv).append(";\n");
             }
             return;
         }
@@ -642,7 +691,9 @@ public final class CppWriter {
         for (Phi p : to.phis) {
             Value in = p.getOperands().get(from);
             if (in != null) {
-                b.append("v").append(ir.ra.get(p)).append(" = ").append(valueVar(in, ir)).append("; ");
+                b.append("v").append(ir.ra.get(p)).append(" = ")
+                 .append("(").append(Types.c(p.getType())).append(")")
+                 .append(valueVar(in, ir)).append("; ");
             }
         }
         b.append("goto ").append(to.label()).append(";\n");

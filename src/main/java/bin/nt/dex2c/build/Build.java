@@ -92,9 +92,14 @@ public final class Build {
         Compiler compiler = new Compiler(cli, appClass != null && targeted(cli, appClass) ? appClass : null);
         for (Path dex : dexes) {
             DexBackedDexFile df = DexFileFactory.loadDexFile(dex.toFile(), null);
+            long t0 = System.currentTimeMillis();
+            System.err.println("compile: " + dex.getFileName());
             compiler.compileInto(df, cpp, compiled);
+            System.err.println("compile: " + dex.getFileName() + " done in "
+                    + (System.currentTimeMillis() - t0) + " ms");
         }
         System.out.println("build: " + compiled.size() + " methods compiled to native");
+        System.out.flush();
         if (compiled.isEmpty()) {
             System.out.println("build: warning - nothing was compiled; the APK will still load the library");
         }
@@ -103,6 +108,15 @@ public final class Build {
         Path proj = cli.sourceDir != null ? Paths.get(cli.sourceDir) : work.resolve("project");
         NdkProject.write(proj, libName, minSdk, abis, cli.dynamicRegister, compiled,
                 Compiler.mappable(cpp.toString()));
+        System.out.println("build: project written to " + proj.toAbsolutePath()
+                + " (" + compiled.size() + " methods in jni/nc)");
+        System.out.flush();
+        if (cli.sourceDir == null) {
+            Path zip = Paths.get("project-source.zip");
+            zipProject(proj, zip);
+            System.out.println("build: source archive at " + zip.toAbsolutePath());
+            System.out.flush();
+        }
 
         if (cli.noBuild || !nativeStage) {
             System.out.println("build: source only, project at " + proj.toAbsolutePath());
@@ -267,6 +281,24 @@ public final class Build {
             }
         }
         return r;
+    }
+
+    /** Zips a project directory into {@code out} for archival. */
+    private static void zipProject(Path root, Path out) throws IOException {
+        try (java.util.zip.ZipOutputStream z = new java.util.zip.ZipOutputStream(
+                java.nio.file.Files.newOutputStream(out))) {
+            java.nio.file.Files.walk(root).filter(p -> java.nio.file.Files.isRegularFile(p))
+                    .forEach(p -> {
+                        try {
+                            z.putNextEntry(new java.util.zip.ZipEntry(
+                                    root.relativize(p).toString().replace('\\', '/')));
+                            java.nio.file.Files.copy(p, z);
+                            z.closeEntry();
+                        } catch (IOException e) {
+                            throw new java.io.UncheckedIOException(e);
+                        }
+                    });
+        }
     }
 
     /** ABIs present in the APK's {@code lib/} directory. */

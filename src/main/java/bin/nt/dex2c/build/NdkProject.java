@@ -120,8 +120,8 @@ final class NdkProject {
         StringBuilder b = new StringBuilder("#include \"NT.h\"\n\n");
         for (Map.Entry<String, List<Method>> e : byClass.entrySet()) {
             for (Method m : e.getValue()) {
-                b.append("extern \"C\" JNIEXPORT ").append(Types.c(m.getReturnType()))
-                 .append(" JNICALL ").append(CppWriter.JniNames.name(m))
+                b.append("extern ").append(Types.c(m.getReturnType()))
+                 .append(" ").append(CppWriter.JniNames.name(m))
                  .append(signature(m)).append(";\n");
             }
         }

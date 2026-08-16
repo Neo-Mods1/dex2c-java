@@ -125,9 +125,15 @@ public final class Compiler {
     public Main.Result compileInto(DexBackedDexFile dex, StringBuilder cpp, List<Method> compiled) {
         Main.Result r = new Main.Result();
         Set<String> conflicted = conflicts(dex);
+        long t0 = System.currentTimeMillis();
         for (ClassDef c : dex.getClasses()) {
             for (Method m : c.getMethods()) {
                 r.methods++;
+                if ((r.methods & 0xFF) == 0) {
+                    System.err.println("dex2c: " + r.methods + " methods scanned, "
+                            + r.compiled + " compiled, " + r.unsupported + " unsupported ("
+                            + (System.currentTimeMillis() - t0) + " ms)");
+                }
                 if (!selected(c, m)) {
                     continue;
                 }
@@ -140,7 +146,8 @@ public final class Compiler {
                     Graph g = GraphBuilder.build(m);
                     BlockLifter.lift(m, g);
                     IrMethod ir = new SsaBuilder(g, m).build();
-                    cpp.append(new CppWriter().write(ir, cli.dynamicRegister));
+                    String code = new CppWriter().write(ir, cli.dynamicRegister);
+                    cpp.append(code);
                     r.compiled++;
                     if (compiled != null) {
                         compiled.add(m);
