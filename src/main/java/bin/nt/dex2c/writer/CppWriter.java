@@ -139,30 +139,26 @@ public final class CppWriter {
 
     /** Emits every basic block: instructions and the block terminator. */
     private void appendBody(StringBuilder b, IrMethod ir) {
-        Set<IrBasicBlock> emitted = Collections.newSetFromMap(new IdentityHashMap<>());
         for (IrBasicBlock n : ir.irblocks) {
-            emitBlock(b, ir, n, emitted);
+            if (n.start < 0) {
+                continue;
+            }
+            b.append("\n").append(n.label()).append(":\n");
+            for (Instruction ii : n.instrList) {
+                b.append("  ").append(lower((DexInstruction) ii, ir, n)).append("\n");
+            }
+            emitTerminator(b, n, ir);
         }
-        for (IrBasicBlock n : ir.graph.nodes) {
-            emitBlock(b, ir, n, emitted);
-        }
-    }
-
-    private void emitBlock(StringBuilder b, IrMethod ir, IrBasicBlock n,
-            Set<IrBasicBlock> emitted) {
-        if (n.start < 0 || !emitted.add(n)) {
-            return;
-        }
-        b.append("\n").append(n.label()).append(":\n");
-        for (Instruction ii : n.instrList) {
-            b.append("  ").append(lower((DexInstruction) ii, ir, n)).append("\n");
-        }
-        emitTerminator(b, n, ir);
     }
 
     /** Emits the exception landing pads and their handler dispatch. */
     private void appendLandingPads(StringBuilder b, IrMethod ir) {
+        Set<IrBasicBlock> live = Collections.newSetFromMap(new IdentityHashMap<>());
+        live.addAll(ir.irblocks);
         for (LandingPad lp : ir.graph.landingPads) {
+            if (!live.contains(lp.source)) {
+                continue;
+            }
             b.append("\n").append(lp.label())
              .append(":\n  pendingException = env->ExceptionOccurred(); env->ExceptionClear();\n");
             for (Map.Entry<String, IrBasicBlock> h : lp.handles.entrySet()) {
