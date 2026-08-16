@@ -299,7 +299,7 @@ public final class CppWriter {
             return dst + " = " + literal(d) + ";";
         }
         if (o.equals("array-length")) {
-            return dst + " = env->GetArrayLength((jarray)" + b + ");";
+            return dst + " = env->GetArrayLength((jarray)(intptr_t)" + b + ");";
         }
         if (o.equals("new-instance")) {
             return dst + " = env->AllocObject(env->FindClass(\""
@@ -316,22 +316,22 @@ public final class CppWriter {
             return filledArray(dstNew, r, refType(d), d, ir);
         }
         if (o.equals("throw")) {
-            return "pendingException = (jthrowable)" + a + "; env->Throw(pendingException);";
+            return "pendingException = (jthrowable)(intptr_t)" + a + "; env->Throw(pendingException);";
         }
         if (o.equals("monitor-enter")) {
-            return "env->MonitorEnter((jobject)" + a + ");" + checkException(block, ir);
+            return "env->MonitorEnter((jobject)(intptr_t)" + a + ");" + checkException(block, ir);
         }
         if (o.equals("monitor-exit")) {
-            return "env->MonitorExit((jobject)" + a + ");" + checkException(block, ir);
+            return "env->MonitorExit((jobject)(intptr_t)" + a + ");" + checkException(block, ir);
         }
         if (o.equals("check-cast")) {
-            return "if(" + a + " && !env->IsInstanceOf((jobject)" + a + ", env->FindClass(\""
+            return "if(" + a + " && !env->IsInstanceOf((jobject)(intptr_t)" + a + ", env->FindClass(\""
                     + Types.descToClass(refType(d))
                     + "\"))) { env->ThrowNew(env->FindClass(\"java/lang/ClassCastException\"), \"check-cast\"); goto EX_UnwindBlock; }";
         }
         if (o.equals("instance-of")) {
             return dst + " = " + assignCast(dst) + "(" + a
-                    + " && env->IsInstanceOf((jobject)" + a + ", env->FindClass(\""
+                    + " && env->IsInstanceOf((jobject)(intptr_t)" + a + ", env->FindClass(\""
                     + Types.descToClass(refType(d)) + "\")) ? 1 : 0);";
         }
         if (o.startsWith("aget")) {
@@ -362,10 +362,10 @@ public final class CppWriter {
             return "/* return terminator */";
         }
         if (o.startsWith("neg-")) {
-            return dst + " = -" + b + ";";
+            return dst + " = -" + numIfPtr(b) + ";";
         }
         if (o.startsWith("not-")) {
-            return dst + " = ~" + b + ";";
+            return dst + " = ~" + numIfPtr(b) + ";";
         }
         String cast = castOp(o, b);
         if (cast != null) {
@@ -376,7 +376,8 @@ public final class CppWriter {
             return binaryLower(o, bin, a, b, c, dst, d);
         }
         if (o.startsWith("cmp")) {
-            return dst + " = (" + b + " > " + c + " ? 1 : (" + b + " < " + c + " ? -1 : 0));";
+            return dst + " = (" + numIfPtr(b) + " > " + numIfPtr(c) + " ? 1 : ("
+                    + numIfPtr(b) + " < " + numIfPtr(c) + " ? -1 : 0));";
         }
         return "/* UNSUPPORTED: " + o + " */";
     }
@@ -386,35 +387,38 @@ public final class CppWriter {
         String rhs;
         if (o.contains("lit")) {
             long lit = d.literal() == null ? 0 : d.literal();
-            rhs = o.startsWith("rsub") ? "(" + lit + " - " + b + ")" : "(" + b + " " + bin + " " + lit + ")";
+            rhs = o.startsWith("rsub") ? "(" + lit + " - " + numIfPtr(b) + ")"
+                    : "(" + numIfPtr(b) + " " + bin + " " + lit + ")";
         } else if (o.contains("2addr")) {
-            rhs = "(" + a + " " + bin + " " + b + ")";
+            rhs = "(" + numIfPtr(a) + " " + bin + " " + numIfPtr(b) + ")";
         } else {
-            rhs = "(" + b + " " + bin + " " + c + ")";
+            rhs = "(" + numIfPtr(b) + " " + bin + " " + numIfPtr(c) + ")";
         }
         if (bin.equals("/") && o.contains("int")) {
-            rhs = "nt_div_i(env," + b + "," + c + ")";
+            rhs = "nt_div_i(env," + numIfPtr(b) + "," + numIfPtr(c) + ")";
         }
         if (bin.equals("%") && o.contains("int")) {
-            rhs = "nt_rem_i(env," + b + "," + c + ")";
+            rhs = "nt_rem_i(env," + numIfPtr(b) + "," + numIfPtr(c) + ")";
         }
         if (bin.equals("/") && o.contains("long")) {
-            rhs = "nt_div_l(env," + b + "," + c + ")";
+            rhs = "nt_div_l(env," + numIfPtr(b) + "," + numIfPtr(c) + ")";
         }
         if (bin.equals("%") && o.contains("long")) {
-            rhs = "nt_rem_l(env," + b + "," + c + ")";
+            rhs = "nt_rem_l(env," + numIfPtr(b) + "," + numIfPtr(c) + ")";
         }
         if (bin.equals("%") && o.contains("float")) {
-            rhs = "fmodf(" + b + "," + c + ")";
+            rhs = "fmodf(" + numIfPtr(b) + "," + numIfPtr(c) + ")";
         }
         if (bin.equals("%") && o.contains("double")) {
-            rhs = "fmod(" + b + "," + c + ")";
+            rhs = "fmod(" + numIfPtr(b) + "," + numIfPtr(c) + ")";
         }
         if (o.startsWith("ushr")) {
-            rhs = "((uint64_t)" + b + " >> (" + c + " & " + (o.contains("long") ? "63" : "31") + "))";
+            rhs = "((uint64_t)" + numIfPtr(b) + " >> ((intptr_t)" + c + " & "
+                    + (o.contains("long") ? "63" : "31") + "))";
         }
         if (o.startsWith("shl") || o.startsWith("shr")) {
-            rhs = "(" + b + " " + bin + " (" + c + " & " + (o.contains("long") ? "63" : "31") + "))";
+            rhs = "(" + numIfPtr(b) + " " + bin + " ((intptr_t)" + c + " & "
+                    + (o.contains("long") ? "63" : "31") + "))";
         }
         return dst + " = " + rhs + ";";
     }
@@ -452,6 +456,16 @@ public final class CppWriter {
         return Long.toString(d.literal());
     }
 
+    /** Casts a value to an integer when its slot is pointer-typed. */
+    private String numIfPtr(String x) {
+        String t = slotTypes.get(x);
+        if (t != null && (t.contains("Array") || t.equals("jobject") || t.equals("jstring")
+                || t.equals("jclass") || t.equals("jthrowable") || t.equals("jweak"))) {
+            return "(intptr_t)" + x;
+        }
+        return x;
+    }
+
     /** Resolves the referenced type of a typed instruction. */
     private String refType(DexInstruction d) {
         if (d.reference() instanceof TypeReference) {
@@ -468,8 +482,8 @@ public final class CppWriter {
         for (int i = 0; i < regs.length; i++) {
             String v = value(regs[i], d, ir);
             if (e.startsWith("L") || e.startsWith("[")) {
-                x.append(" env->SetObjectArrayElement((jobjectArray)").append(dst).append(", ").append(i)
-                 .append(", (jobject)").append(v).append(");");
+                x.append(" env->SetObjectArrayElement((jobjectArray)(intptr_t)").append(dst).append(", ").append(i)
+                 .append(", (jobject)(intptr_t)").append(v).append(");");
             } else {
                 x.append(" /* fill primitive */ ");
             }
@@ -484,32 +498,28 @@ public final class CppWriter {
         }
         String e = t.substring(1);
         String sz = "(jsize)(intptr_t)" + size;
+        String rhs;
         if ("Z".equals(e)) {
-            return dst + " = env->NewBooleanArray(" + sz + ");";
+            rhs = "env->NewBooleanArray(" + sz + ")";
+        } else if ("B".equals(e)) {
+            rhs = "env->NewByteArray(" + sz + ")";
+        } else if ("C".equals(e)) {
+            rhs = "env->NewCharArray(" + sz + ")";
+        } else if ("S".equals(e)) {
+            rhs = "env->NewShortArray(" + sz + ")";
+        } else if ("I".equals(e)) {
+            rhs = "env->NewIntArray(" + sz + ")";
+        } else if ("J".equals(e)) {
+            rhs = "env->NewLongArray(" + sz + ")";
+        } else if ("F".equals(e)) {
+            rhs = "env->NewFloatArray(" + sz + ")";
+        } else if ("D".equals(e)) {
+            rhs = "env->NewDoubleArray(" + sz + ")";
+        } else {
+            rhs = "env->NewObjectArray(" + sz + ", env->FindClass(\""
+                    + Types.descToClass(e) + "\"), NULL)";
         }
-        if ("B".equals(e)) {
-            return dst + " = env->NewByteArray(" + sz + ");";
-        }
-        if ("C".equals(e)) {
-            return dst + " = env->NewCharArray(" + sz + ");";
-        }
-        if ("S".equals(e)) {
-            return dst + " = env->NewShortArray(" + sz + ");";
-        }
-        if ("I".equals(e)) {
-            return dst + " = env->NewIntArray(" + sz + ");";
-        }
-        if ("J".equals(e)) {
-            return dst + " = env->NewLongArray(" + sz + ");";
-        }
-        if ("F".equals(e)) {
-            return dst + " = env->NewFloatArray(" + sz + ");";
-        }
-        if ("D".equals(e)) {
-            return dst + " = env->NewDoubleArray(" + sz + ");";
-        }
-        return dst + " = env->NewObjectArray(" + sz + ", env->FindClass(\""
-                + Types.descToClass(e) + "\"), NULL);";
+        return dst + " = " + assignCast(dst) + rhs + ";";
     }
 
     /** Maps an opcode to its C cast, or {@code null} when not a conversion. */
@@ -553,9 +563,10 @@ public final class CppWriter {
         String s = arrayKind(d);
         if ("Object".equals(s)) {
             return dst + " = " + assignCast(dst)
-                    + "env->GetObjectArrayElement((jobjectArray)" + arr + ", (jsize)(intptr_t)" + idx + ");";
+                    + "env->GetObjectArrayElement((jobjectArray)(intptr_t)" + arr + ", (jsize)(intptr_t)" + idx + ");";
         }
-        return "env->Get" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)(intptr_t)" + idx
+        return "env->Get" + s + "ArrayRegion((" + arrayType(s) + ")(intptr_t)" + arr
+                + ", (jsize)(intptr_t)" + idx
                 + ", 1, (" + elemType(s) + "*)&" + dst + ");";
     }
 
@@ -563,10 +574,10 @@ public final class CppWriter {
     private String arrayPut(DexInstruction d, String val, String arr, String idx) {
         String s = arrayKind(d);
         if ("Object".equals(s)) {
-            return "env->SetObjectArrayElement((jobjectArray)" + arr + ", (jsize)" + idx
+            return "env->SetObjectArrayElement((jobjectArray)(intptr_t)" + arr + ", (jsize)(intptr_t)" + idx
                     + ", (jobject)(intptr_t)" + val + ");";
         }
-        return "env->Set" + s + "ArrayRegion((" + arrayType(s) + ")" + arr + ", (jsize)(intptr_t)" + idx
+        return "env->Set" + s + "ArrayRegion((" + arrayType(s) + ")(intptr_t)" + arr + ", (jsize)(intptr_t)" + idx
                 + ", 1, (" + elemType(s) + "*)&" + val + ");";
     }
 
@@ -654,14 +665,20 @@ public final class CppWriter {
         String call = stat ? "CallStatic" : "Call";
         String suf = Types.jniSuffix(m.getReturnType());
         String obj = stat ? "env->FindClass(\"" + cls + "\")"
-                : "(jobject)" + (d.registers().length > 0 ? value(d.registers()[0], d, ir) : "thiz");
+                : "(jobject)(intptr_t)" + (d.registers().length > 0 ? value(d.registers()[0], d, ir) : "thiz");
         StringBuilder args = new StringBuilder();
         int start = stat ? 0 : 1;
+        List<CharSequence> params = new ArrayList<>(m.getParameterTypes());
         for (int i = start; i < d.registers().length; i++) {
             if (args.length() > 0) {
                 args.append(", ");
             }
-            args.append(value(d.registers()[i], d, ir));
+            String av = value(d.registers()[i], d, ir);
+            int pi = i - start;
+            if (pi < params.size()) {
+                av = castToParam(av, params.get(pi).toString());
+            }
+            args.append(av);
         }
         String expr = "env->Get" + (stat ? "Static" : "") + "MethodID(env->FindClass(\"" + cls + "\"), \""
                 + name + "\", \"" + sig + "\")";
@@ -679,6 +696,22 @@ public final class CppWriter {
     private String assignCast(String dst) {
         String dct = slotTypes.get(dst);
         return dct != null ? "(" + dct + ")(intptr_t)" : "(jobject)(intptr_t)";
+    }
+
+    /** Casts a call argument to the JNI type of its descriptor parameter. */
+    private String castToParam(String av, String p) {
+        String want = p.startsWith("L") || p.startsWith("[") ? "jobject"
+                : "J".equals(p) ? "jlong"
+                : "D".equals(p) ? "jdouble"
+                : "F".equals(p) ? "jfloat" : "jint";
+        String at = slotTypes.get(av);
+        if (at == null || want.equals(at)) {
+            return av;
+        }
+        if (want.equals("jobject")) {
+            return "(jobject)(intptr_t)" + av;
+        }
+        return "(" + want + ")(intptr_t)" + av;
     }
 
     /** Emits the control-flow terminator of a basic block. */
@@ -760,6 +793,8 @@ public final class CppWriter {
         if (o.endsWith("eqz")) {
             b = "0";
         }
+        a = numIfPtr(a);
+        b = numIfPtr(b);
         if ("if-eq".equals(o) || "if-eqz".equals(o)) return a + " == " + b;
         if ("if-ne".equals(o) || "if-nez".equals(o)) return a + " != " + b;
         if ("if-lt".equals(o) || "if-ltz".equals(o)) return a + " < " + b;
