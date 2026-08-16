@@ -672,7 +672,7 @@ public final class CppWriter {
 
     /** C-style cast from a JNI jobject/pointer result to the SSA value's type. */
     private String assignCast(String t) {
-        return Types.ref(t) ? "(jobject)" : "(" + Types.c(t) + ")(intptr_t)";
+        return Types.ref(t) ? "(jobject)(intptr_t)" : "(" + Types.c(t) + ")(intptr_t)";
     }
 
     /** Emits the control-flow terminator of a basic block. */

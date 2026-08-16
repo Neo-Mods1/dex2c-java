@@ -327,6 +327,9 @@ public final class SsaBuilder {
         if (o.equals("const-string") || o.equals("const-string/jumbo")) {
             return "Ljava/lang/String;";
         }
+        if (o.equals("array-length")) {
+            return "I";
+        }
         if (o.equals("const-class")) {
             return "Ljava/lang/Class;";
         }

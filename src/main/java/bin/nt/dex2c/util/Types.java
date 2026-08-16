@@ -53,6 +53,34 @@ public final class Types {
         if ("D".equals(t)) {
             return "jdouble";
         }
+        if (t.startsWith("[") && t.length() > 1) {
+            char e = t.charAt(1);
+            if (e == 'Z') {
+                return "jbooleanArray";
+            }
+            if (e == 'B') {
+                return "jbyteArray";
+            }
+            if (e == 'C') {
+                return "jcharArray";
+            }
+            if (e == 'S') {
+                return "jshortArray";
+            }
+            if (e == 'I') {
+                return "jintArray";
+            }
+            if (e == 'J') {
+                return "jlongArray";
+            }
+            if (e == 'F') {
+                return "jfloatArray";
+            }
+            if (e == 'D') {
+                return "jdoubleArray";
+            }
+            return "jobjectArray";
+        }
         return t.startsWith("[") ? "jarray" : "jobject";
     }
 
