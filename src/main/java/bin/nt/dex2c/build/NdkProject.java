@@ -59,7 +59,6 @@ final class NdkProject {
         Files.write(nc.resolve("dex2c.hpp"), dex2cHpp(compiled, dynamic).getBytes(StandardCharsets.UTF_8));
         Files.write(nc.resolve("DynamicRegister.cpp"),
                 dynamicRegister(dynamic, compiled).getBytes(StandardCharsets.UTF_8));
-        Files.write(nc.resolve("export.map"), exportMap(dynamic).getBytes(StandardCharsets.UTF_8));
         Files.write(nc.resolve("dex2c.cpp"),
                 ("#include \"dex2c.hpp\"\n\n" + dex2cSource).getBytes(StandardCharsets.UTF_8));
     }
@@ -69,11 +68,10 @@ final class NdkProject {
                 + "\n"
                 + "include $(CLEAR_VARS)\n"
                 + "LOCAL_MODULE    := " + libName + "\n"
-                + "LOCAL_CFLAGS    := -O2\n"
+                + "LOCAL_CFLAGS    := -O2 -fvisibility=hidden\n"
                 + "LOCAL_CPPFLAGS  := -fno-exceptions -fno-rtti\n"
                 + "LOCAL_LDLIBS    := -llog\n"
                 + "LOCAL_SRC_FILES := $(call all-cpp-files-under, nc)\n"
-                + "LOCAL_LDFLAGS   := -Wl,--version-script=$(LOCAL_PATH)/nc/export.map\n"
                 + "include $(BUILD_SHARED_LIBRARY)\n";
     }
 
@@ -132,17 +130,6 @@ final class NdkProject {
             }
         }
         return b.append(dynamic ? "" : "}\n").append("\n#endif\n").toString();
-    }
-
-    /** GNU ld version script: only the listed symbols stay in the dynamic symbol table. */
-    private static String exportMap(boolean dynamic) {
-        return "{\n"
-                + "  global:\n"
-                + "    JNI_OnLoad;\n"
-                + (dynamic ? "" : "    Java_*;\n")
-                + "  local:\n"
-                + "    *;\n"
-                + "};\n";
     }
 
     private static String dynamicRegister(boolean dynamic, List<Method> compiled) {
