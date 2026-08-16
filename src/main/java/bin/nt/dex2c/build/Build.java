@@ -389,8 +389,97 @@ public final class Build {
         if (appOverride != null) {
             patchManifestApp(dir.resolve("AndroidManifest.xml"), appOverride);
         }
+        patchApktoolNoCompress(dir);
         ToolRunner.run(List.of("java", "-jar", apktool, "b", dir.toString(),
                 "-o", out.toString()));
+        storeLibEntries(out);
+    }
+
+    /** Adds {@code so} to the decoded {@code apktool.yml} no-compress list. */
+    static void patchApktoolNoCompress(Path dir) throws IOException {
+        Path yml = dir.resolve("apktool.yml");
+        if (!Files.isRegularFile(yml)) {
+            throw new IOException("apktool.yml missing after decode");
+        }
+        List<String> lines = new ArrayList<>(
+                Files.readAllLines(yml, StandardCharsets.UTF_8));
+        int idx = lines.indexOf("doNotCompress:");
+        if (idx < 0) {
+            lines.add("");
+            lines.add("doNotCompress:");
+            lines.add("- so");
+        } else {
+            boolean hasSo = false;
+            int i = idx + 1;
+            while (i < lines.size()) {
+                String t = lines.get(i).trim();
+                if (t.isEmpty() || t.startsWith("#")) {
+                    i++;
+                    continue;
+                }
+                if (!t.startsWith("-")) {
+                    break;
+                }
+                if (t.equals("- so")) {
+                    hasSo = true;
+                    break;
+                }
+                i++;
+            }
+            if (!hasSo) {
+                lines.add(idx + 1, "- so");
+            }
+        }
+        Files.write(yml, lines, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * Rewrites the built APK so every {@code lib/} entry is stored
+     * uncompressed, keeping every other entry byte-identical (compression
+     * method included).
+     */
+    static void storeLibEntries(Path apk) throws IOException {
+        Path tmp = apk.resolveSibling(apk.getFileName() + ".store");
+        try (ZipFile z = new ZipFile(apk.toFile());
+             java.util.zip.ZipOutputStream out = new java.util.zip.ZipOutputStream(
+                     Files.newOutputStream(tmp))) {
+            Enumeration<? extends ZipEntry> en = z.entries();
+            while (en.hasMoreElements()) {
+                ZipEntry e = en.nextElement();
+                boolean lib = e.getName().startsWith("lib/");
+                ZipEntry n = new ZipEntry(e.getName());
+                n.setTime(e.getTime());
+                n.setComment(e.getComment());
+                n.setExtra(e.getExtra());
+                n.setMethod(lib ? ZipEntry.STORED : e.getMethod());
+                if (lib) {
+                    n.setCompressedSize(e.getSize());
+                    n.setCrc(e.getCrc() >= 0 ? e.getCrc() : crcOf(z, e));
+                } else {
+                    n.setCompressedSize(e.getCompressedSize());
+                    n.setCrc(e.getCrc());
+                }
+                n.setSize(e.getSize());
+                out.putNextEntry(n);
+                try (java.io.InputStream in = z.getInputStream(e)) {
+                    in.transferTo(out);
+                }
+                out.closeEntry();
+            }
+        }
+        Files.move(tmp, apk, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private static long crcOf(ZipFile z, ZipEntry e) throws IOException {
+        java.util.zip.CRC32 c = new java.util.zip.CRC32();
+        try (java.io.InputStream in = z.getInputStream(e)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) >= 0) {
+                c.update(buf, 0, n);
+            }
+        }
+        return c.getValue();
     }
 
     /** Points the decoded manifest's application tag at the loader class. */
