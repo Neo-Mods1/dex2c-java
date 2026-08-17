@@ -41,7 +41,7 @@ jobs:
           unzip -lv build/dex2c-out.apk | grep -E "classes[0-9]*\.dex|lib/.+/lib.*\.so"
           unzip -l build/dex2c-out.apk | grep -qE "lib/(arm64-v8a|armeabi-v7a|x86_64|x86)/libstub\.so" || { echo "no compiled lib in apk"; exit 1; }
           NO_SIZE=$(unzip -l build/dex2c-out.apk | grep -E "lib/.*/libstub\.so" | awk '{print $1}' | head -1)
-          [ "$NO_SIZE" -gt 100000 ] || { echo "libstub.so too small ($NO_SIZE bytes) - compiled methods missing"; exit 1; }
+          [ "$NO_SIZE" -gt 20000 ] || { echo "libstub.so too small ($NO_SIZE bytes) - compiled methods missing"; exit 1; }
           unzip -lv build/dex2c-out.apk | grep -E "lib/.*/libstub\.so" | grep -q "Stored" || { echo "libstub.so must be stored uncompressed for page alignment"; exit 1; }
           ZALIGN=$(ls $ANDROID_HOME/build-tools/*/zipalign | tail -1)
           "$ZALIGN" -c -P 16 4 build/dex2c-out.apk

@@ -67,9 +67,13 @@ public final class Build {
         List<Path> dexes = Main.InputDexes.extract(input, work.resolve("dex"));
         BinaryXml.Manifest man = BinaryXml.read(input);
         if (cli.filter == null && man != null && man.pkg != null && !man.pkg.isEmpty()) {
-            cli.filter = "^L" + Pattern.quote(man.pkg.replace('.', '/')) + "/";
+            String[] seg = man.pkg.split("\\.");
+            String root = seg.length >= 3
+                    ? String.join(".", java.util.Arrays.copyOf(seg, seg.length - 1))
+                    : man.pkg;
+            cli.filter = "^L" + Pattern.quote(root.replace('.', '/')) + "/";
             System.out.println("build: default filter " + cli.filter
-                    + " (compile only the app package, pass --filter to override)");
+                    + " (compile only the app package tree, pass --filter to override)");
         }
         String appClass = resolveAppClass(man);
         boolean nativeStage = cli.nativeEnabled == null || cli.nativeEnabled;
