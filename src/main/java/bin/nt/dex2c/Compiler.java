@@ -125,6 +125,7 @@ public final class Compiler {
     public Main.Result compileInto(DexBackedDexFile dex, StringBuilder cpp, List<Method> compiled) {
         Main.Result r = new Main.Result();
         Set<String> conflicted = conflicts(dex);
+        Map<String, Integer> failures = new HashMap<>();
         long t0 = System.currentTimeMillis();
         for (ClassDef c : dex.getClasses()) {
             for (Method m : c.getMethods()) {
@@ -140,6 +141,7 @@ public final class Compiler {
                 String key = c.getType() + m.getName() + params(m);
                 if (conflicted.contains(key)) {
                     r.unsupported++;
+                    failures.merge("conflicted-return-type", 1, Integer::sum);
                     continue;
                 }
                 try {
@@ -154,11 +156,19 @@ public final class Compiler {
                     }
                 } catch (Throwable t) {
                     r.unsupported++;
+                    String n = t.getClass().getSimpleName();
+                    failures.merge(n, 1, Integer::sum);
                     cpp.append("\n/* FAILED ")
                        .append(safe(c.getType() + "->" + m.getName() + descriptor(m) + ": " + t))
                        .append(" */\n");
                 }
             }
+        }
+        if (!failures.isEmpty()) {
+            System.err.println("compile: unsupported breakdown " + failures.entrySet().stream()
+                    .sorted((a, b) -> b.getValue() - a.getValue())
+                    .map(e -> e.getKey() + "=" + e.getValue())
+                    .collect(java.util.stream.Collectors.joining(", ")));
         }
         return r;
     }
