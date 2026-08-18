@@ -242,8 +242,20 @@ public final class SsaBuilder {
             return;
         }
         if (isInvoke(o)) {
-            for (int x : r) {
-                d.addOperand(read(x));
+            int i = 0;
+            if (!isStaticInvoke(o) && r.length > 0) {
+                d.addOperand(read(r[i++]));
+            }
+            if (d.reference() instanceof MethodReference) {
+                int j = i;
+                for (CharSequence p : ((MethodReference) d.reference()).getParameterTypes()) {
+                    d.addOperand(read(r[j]));
+                    j += slots(p.toString());
+                }
+                i = j;
+            }
+            for (; i < r.length; i++) {
+                d.addOperand(read(r[i]));
             }
             String rt = invokeReturn(d);
             if (rt != null && !"V".equals(rt)) {
@@ -254,15 +266,15 @@ public final class SsaBuilder {
             return;
         }
         if (writes) {
+            for (int i = 1; i < r.length; i++) {
+                d.addOperand(read(r[i]));
+            }
             Variable out = write(dest);
             d.setValue(out);
             String tf = typeFor(d);
             out.refineType(tf);
             if (tf == null && !d.getOperands().isEmpty()) {
                 out.refineType(d.getOperands().get(0).getType());
-            }
-            for (int i = 1; i < r.length; i++) {
-                d.addOperand(read(r[i]));
             }
         } else {
             for (int x : r) {
@@ -302,6 +314,10 @@ public final class SsaBuilder {
 
     private static boolean isInvoke(String o) {
         return o.startsWith("invoke-");
+    }
+
+    private static boolean isStaticInvoke(String o) {
+        return o.startsWith("invoke-static");
     }
 
     private static boolean isConst(DexInstruction d) {

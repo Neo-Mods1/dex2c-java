@@ -97,14 +97,20 @@ public final class Graph implements Iterable<IrBasicBlock> {
         return r;
     }
 
-    /** Normal predecessors of a block. */
+    /** Normal predecessors of a block, excluding catch-region predecessors. */
     public List<IrBasicBlock> preds(IrBasicBlock n) {
-        return new ArrayList<>(reverseEdges.getOrDefault(n, List.of()));
+        List<IrBasicBlock> r = new ArrayList<>();
+        for (IrBasicBlock p : reverseEdges.getOrDefault(n, List.of())) {
+            if (!p.inCatch) {
+                r.add(p);
+            }
+        }
+        return r;
     }
 
     /** Normal plus exceptional predecessors of a block. */
     public List<IrBasicBlock> allPreds(IrBasicBlock n) {
-        List<IrBasicBlock> r = preds(n);
+        List<IrBasicBlock> r = new ArrayList<>(reverseEdges.getOrDefault(n, List.of()));
         r.addAll(reverseCatchEdges.getOrDefault(n, List.of()));
         return r;
     }

@@ -33,7 +33,7 @@ jobs:
           echo "$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)" >> $GITHUB_PATH
 
       - name: Full dex2c APK build (NDK, repack, sign)
-        run: java -jar build/libs/dex2c-cli-2.0.0-all.jar --command build --input "test/NT Manager_1.0.apk" --output build/dex2c-out.apk
+        run: java -jar build/libs/dex2c-cli-2.0.0-all.jar --command build --input "test/app-release.apk" --output build/dex2c-out.apk
 
       - name: Verify built APK
         run: |

@@ -132,8 +132,30 @@ public final class Types {
 
     /** Escapes a string for embedding in a C++ string literal. */
     public static String escape(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
-                .replace("\r", "\\r").replace("\t", "\\t").replace("\u0000", "\\000");
+        if (s == null) {
+            return "";
+        }
+        StringBuilder r = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': r.append("\\\\"); break;
+                case '"': r.append("\\\""); break;
+                case '\n': r.append("\\n"); break;
+                case '\r': r.append("\\r"); break;
+                case '\t': r.append("\\t"); break;
+                default:
+                    if (c < 0x20 || c == 0x7f) {
+                        r.append('\\')
+                         .append((char) ('0' + ((c >> 6) & 7)))
+                         .append((char) ('0' + ((c >> 3) & 7)))
+                         .append((char) ('0' + (c & 7)));
+                    } else {
+                        r.append(c);
+                    }
+            }
+        }
+        return r.toString();
     }
 
     /**

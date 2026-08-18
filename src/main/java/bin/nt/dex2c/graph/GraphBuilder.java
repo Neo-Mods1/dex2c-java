@@ -137,6 +137,7 @@ public final class GraphBuilder {
         addTryEdges(method, impl, g, bm, codeSize);
         buildLandingPads(impl, g, bm);
         g.computeRpo();
+        propagateInCatch(g);
         return g;
     }
 
@@ -250,6 +251,28 @@ public final class GraphBuilder {
     /** Invokes a no-arg getter and returns its int value. */
     static int num(Object o, String method) throws Exception {
         return ((Number) o.getClass().getMethod(method).invoke(o)).intValue();
+    }
+
+    /**
+     * Marks a block as being inside a catch region when every one of its
+     * RPO-earlier predecessors is already marked.
+     */
+    static void propagateInCatch(Graph g) {
+        for (IrBasicBlock node : g.rpo) {
+            boolean any = false;
+            boolean all = true;
+            for (IrBasicBlock pred : g.allPreds(node)) {
+                if (pred.num < node.num) {
+                    any = true;
+                    if (!pred.inCatch) {
+                        all = false;
+                    }
+                }
+            }
+            if (any && all) {
+                node.inCatch = true;
+            }
+        }
     }
 
     /** Creates a landing pad for every protected region. */

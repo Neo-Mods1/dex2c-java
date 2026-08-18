@@ -48,9 +48,13 @@ public final class BlockLifter {
             ins.add(q);
         }
         Map<Integer, Instruction> at = new HashMap<>();
+        Map<Integer, Instruction> payloads = new HashMap<>();
         int p = 0;
         for (Instruction i : ins) {
             at.put(p, i);
+            if (i.getOpcode().name().contains("PAYLOAD")) {
+                payloads.put(p, i);
+            }
             p += i.getCodeUnits();
         }
         int codeSize = p;
@@ -70,7 +74,11 @@ public final class BlockLifter {
                 if (d == null) {
                     break;
                 }
-                b.addIns(adapt(d, pc));
+                if (d.getOpcode().name().contains("PAYLOAD")) {
+                    pc += d.getCodeUnits();
+                    continue;
+                }
+                b.addIns(adapt(d, pc, payloads));
                 pc += d.getCodeUnits();
             }
             b.filled = true;
@@ -78,7 +86,7 @@ public final class BlockLifter {
     }
 
     /** Converts one DEX instruction into a {@link DexInstruction}. */
-    private static DexInstruction adapt(Instruction d, int pc) {
+    private static DexInstruction adapt(Instruction d, int pc, Map<Integer, Instruction> payloads) {
         String op = d.getOpcode().name().toLowerCase(Locale.ROOT).replace('_', '-');
         int[] regs = regs(d);
         Long lit = literal(d);
@@ -97,11 +105,64 @@ public final class BlockLifter {
             }
         } catch (Exception ignored) {
         }
-        DexInstruction ir = new DexInstruction(op, regs, lit, ref, target, sw);
+        DexInstruction ir;
+        if (op.equals("fill-array-data")) {
+            Object[] pd = payloadData(payloads.get(target));
+            if (pd != null) {
+                ir = new DexInstruction(op, regs, lit, ref, target, sw,
+                        (Integer) pd[0], (Integer) pd[1], (byte[]) pd[2]);
+            } else {
+                ir = new DexInstruction(op, regs, lit, ref, target, sw);
+            }
+        } else {
+            ir = new DexInstruction(op, regs, lit, ref, target, sw);
+        }
         ir.setOffset(pc);
         ir.setNextOffset(pc + d.getCodeUnits());
         ir.setDexInstruction(d);
         return ir;
+    }
+
+    /**
+     * Reads the fill-array-data payload of a payload pseudo-instruction.
+     *
+     * @param pl the payload pseudo-instruction, or {@code null}
+     * @return {@code [size, elementWidth, data]} or {@code null}
+     */
+    private static Object[] payloadData(Instruction pl) {
+        if (pl == null) {
+            return null;
+        }
+        try {
+            java.lang.reflect.Method w = pl.getClass().getMethod("getElementWidth");
+            int width = ((Number) w.invoke(pl)).intValue();
+            java.lang.reflect.Method es = pl.getClass().getMethod("getArrayElements");
+            Object x = es.invoke(pl);
+            if (!(x instanceof Iterable<?>)) {
+                return null;
+            }
+            List<Long> values = new ArrayList<>();
+            int size = 0;
+            for (Object e : (Iterable<?>) x) {
+                int idx = ((Number) e.getClass().getMethod("getIndex").invoke(e)).intValue();
+                while (values.size() <= idx) {
+                    values.add(0L);
+                }
+                values.set(idx, ((Number) e.getClass().getMethod("getValue").invoke(e)).longValue());
+                size = Math.max(size, idx + 1);
+            }
+            byte[] data = new byte[size * width];
+            long mask = width >= 8 ? -1L : (1L << (width * 8)) - 1;
+            for (int i = 0; i < size; i++) {
+                long v = values.get(i) & mask;
+                for (int b = 0; b < width; b++) {
+                    data[i * width + b] = (byte) (v >>> (8 * b));
+                }
+            }
+            return new Object[]{size, width, data};
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /**

@@ -65,16 +65,21 @@ public final class Build {
         int minSdk = cli.minSdk > 0 ? cli.minSdk : 21;
 
         List<Path> dexes = Main.InputDexes.extract(input, work.resolve("dex"));
+        Main.applyFilterFile(cli);
         BinaryXml.Manifest man = BinaryXml.read(input);
-        if (cli.filter == null && man != null && man.pkg != null && !man.pkg.isEmpty()) {
-            String[] seg = man.pkg.split("\\.");
-            String root = seg.length >= 3
-                    ? String.join(".", java.util.Arrays.copyOf(seg, seg.length - 1))
-                    : man.pkg;
-            cli.filter = "^L" + Pattern.quote(root.replace('.', '/')) + "/";
-            System.out.println("build: default filter " + cli.filter
-                    + " (compile only the app package tree, pass --filter to override)");
+        if (cli.filter == null && man != null) {
+            String def = Main.defaultFilter(man);
+            if (def != null) {
+                cli.filter = def;
+                Main.info(cli, "build: default filter " + cli.filter
+                        + " (compile only the app package tree, pass --filter to override)");
+            }
         }
+        if (!cli.allowGlobal && ".*".equals(cli.filter)) {
+            throw new IOException("Global filter .* requires --allow-global"
+                    + " (converting all classes to native is unstable)");
+        }
+        Main.applyAugments(cli, dexes);
         String appClass = resolveAppClass(man);
         boolean nativeStage = cli.nativeEnabled == null || cli.nativeEnabled;
         ClassDef loader = null;
@@ -93,7 +98,7 @@ public final class Build {
             if (!cli.excludes.contains(keep)) {
                 cli.excludes.add(keep);
             }
-            System.out.println("build: no Application class; generated loader " + loaderType);
+            Main.info(cli, "build: no Application class; generated loader " + loaderType);
         }
         List<Method> compiled = new ArrayList<>();
         StringBuilder cpp = new StringBuilder(Compiler.HEADER);
@@ -106,7 +111,7 @@ public final class Build {
             System.err.println("compile: " + dex.getFileName() + " done in "
                     + (System.currentTimeMillis() - t0) + " ms");
         }
-        System.out.println("build: " + compiled.size() + " methods compiled to native");
+        Main.info(cli, "build: " + compiled.size() + " methods compiled to native");
         System.out.flush();
         if (compiled.isEmpty()) {
             System.out.println("build: warning - nothing was compiled; the APK will still load the library");
@@ -116,18 +121,18 @@ public final class Build {
         Path proj = cli.sourceDir != null ? Paths.get(cli.sourceDir) : work.resolve("project");
         NdkProject.write(proj, libName, minSdk, abis, cli.dynamicRegister, compiled,
                 Compiler.mappable(cpp.toString()));
-        System.out.println("build: project written to " + proj.toAbsolutePath()
+        Main.info(cli, "build: project written to " + proj.toAbsolutePath()
                 + " (" + compiled.size() + " methods in jni/nc)");
         System.out.flush();
         if (cli.sourceDir == null) {
             Path zip = Paths.get("project-source.zip");
             zipProject(proj, zip);
-            System.out.println("build: source archive at " + zip.toAbsolutePath());
+            Main.info(cli, "build: source archive at " + zip.toAbsolutePath());
             System.out.flush();
         }
 
         if (cli.noBuild || !nativeStage) {
-            System.out.println("build: source only, project at " + proj.toAbsolutePath());
+            Main.info(cli, "build: source only, project at " + proj.toAbsolutePath());
             if (cli.noBuild) {
                 return;
             }
@@ -195,6 +200,8 @@ public final class Build {
             sign.add("pass:" + (cli.keyPass != null ? cli.keyPass : "android"));
             sign.add("--min-sdk-version");
             sign.add(String.valueOf(minSdk));
+            sign.add("--max-sdk-version");
+            sign.add(String.valueOf(cli.maxSdk > 0 ? cli.maxSdk : 33));
             if (cli.signV1 != null) {
                 sign.add("--v1-signing-enabled");
                 sign.add(String.valueOf(cli.signV1));
@@ -212,7 +219,7 @@ public final class Build {
             sign.add(aligned.toString());
             ToolRunner.run(sign);
         }
-        System.out.println("build: wrote " + outApk.toAbsolutePath()
+        Main.info(cli, "build: wrote " + outApk.toAbsolutePath()
                 + " (" + compiled.size() + " native methods, libs=" + libs.keySet() + ")");
     }
 

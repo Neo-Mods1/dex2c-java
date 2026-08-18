@@ -3,9 +3,9 @@ package bin.nt.dex2c.opcode_ins;
 /**
  * Inventory of the legacy Dalvik instruction table.
  *
- * <p>Preserves the exact 227-entry opcode inventory used by the original
- * DEX-to-C compiler as an audit trail. Each entry carries the opcode value,
- * its dash-separated name and the original handler function name.</p>
+ * <p>Preserves the opcode inventory used by the original DEX-to-C compiler
+ * as an audit trail. Each entry carries the opcode value, its dash-separated
+ * name and the original handler function name.</p>
  *
  * <p>The actual Java lowering is name-driven (see
  * {@code bin.nt.dex2c.writer.CppWriter}); this catalog exists for migration
@@ -13,7 +13,7 @@ package bin.nt.dex2c.opcode_ins;
  */
 public final class OpcodeCatalog {
 
-    /** The 227 legacy opcode entries, indexed by opcode value. */
+    /** The 227 legacy opcode entries plus the API-26+ extensions, indexed by opcode value. */
     public static final Entry[] LEGACY = new Entry[] {
             new Entry(0x00, "nop", "nop"),
             new Entry(0x01, "move", "move"),
@@ -242,6 +242,12 @@ public final class OpcodeCatalog {
             new Entry(0xe0, "shl-int/lit8", "shlintlit8"),
             new Entry(0xe1, "shr-int/lit8", "shrintlit8"),
             new Entry(0xe2, "ushr-int/lit8", "ushrintlit8"),
+            new Entry(0xfa, "invoke-polymorphic", "invokepolymorphic"),
+            new Entry(0xfb, "invoke-polymorphic/range", "invokepolymorphicrange"),
+            new Entry(0xfc, "invoke-custom", "invokecustom"),
+            new Entry(0xfd, "invoke-custom/range", "invokecustomrange"),
+            new Entry(0xfe, "const-method-handle", "constmethodhandle"),
+            new Entry(0xff, "const-method-type", "constmethodtype"),
     };
 
     private OpcodeCatalog() {

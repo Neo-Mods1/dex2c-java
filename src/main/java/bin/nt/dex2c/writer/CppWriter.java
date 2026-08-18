@@ -251,12 +251,17 @@ public final class CppWriter {
         if (o.startsWith("move-result")) {
             String rv = d.getOperands().isEmpty() ? null : valueVar(d.getOperands().get(0), ir);
             if (rv == null) {
-                return dst + " = NULL;";
+                return dst + " = " + assignCast(dst) + "NULL;";
             }
             String dv = d.getValue() == null ? null : d.getValue().getType();
             String sv = d.getOperands().get(0).getType();
+            String dct = slotTypes.get(dst);
+            String sct = d.getOperands().get(0) instanceof Variable
+                    ? slotTypes.get(var((Variable) d.getOperands().get(0), ir)) : null;
             if (dv != null && sv != null && !dv.equals(sv)) {
                 rv = "(" + Types.c(dv) + ")(intptr_t)" + rv;
+            } else if (dct != null && sct != null && !dct.equals(sct)) {
+                rv = "(" + dct + ")(intptr_t)" + rv;
             }
             return dst + " = " + rv + ";";
         }
@@ -278,32 +283,33 @@ public final class CppWriter {
             return dst + " = " + b + ";";
         }
         if (o.equals("move-exception")) {
-            return dst + " = pendingException;";
+            return dst + " = " + assignCast(dst) + "pendingException;";
         }
         if (o.startsWith("const-string")) {
             String sv = d.reference() instanceof StringReference
                     ? ((StringReference) d.reference()).getString()
                     : String.valueOf(d.reference());
-            return dst + " = env->NewStringUTF(\"" + Types.escape(sv) + "\");";
+            return dst + " = " + assignCast(dst) + "env->NewStringUTF(\"" + Types.escape(sv) + "\");";
         }
         if (o.equals("const-class")) {
-            return dst + " = env->FindClass(\"" + Types.escape(Types.descToClass(refType(d))) + "\");";
+            return dst + " = " + assignCast(dst) + "env->FindClass(\""
+                    + Types.escape(Types.descToClass(refType(d))) + "\");";
         }
         if (o.startsWith("const")) {
             String ct = d.getValue() == null ? "I" : d.getValue().getType();
             if ("F".equals(ct)) {
-                return dst + " = nt_f32((uint32_t)" + literal(d) + ");";
+                return dst + " = " + intCast(dst) + "nt_f32((uint32_t)" + literal(d) + ");";
             }
             if ("D".equals(ct)) {
-                return dst + " = nt_f64((uint64_t)" + literal(d) + ");";
+                return dst + " = " + intCast(dst) + "nt_f64((uint64_t)" + literal(d) + ");";
             }
-            return dst + " = " + literal(d) + ";";
+            return dst + " = " + intCast(dst) + literal(d) + ";";
         }
         if (o.equals("array-length")) {
-            return dst + " = env->GetArrayLength((jarray)(intptr_t)" + b + ");";
+            return dst + " = " + intCast(dst) + "env->GetArrayLength((jarray)(intptr_t)" + b + ");";
         }
         if (o.equals("new-instance")) {
-            return dst + " = env->AllocObject(env->FindClass(\""
+            return dst + " = " + assignCast(dst) + "env->AllocObject(env->FindClass(\""
                     + Types.escape(Types.descToClass(refType(d))) + "\"));" + checkException(block, ir);
         }
         if (o.equals("new-array")) {
@@ -326,13 +332,16 @@ public final class CppWriter {
             return "env->MonitorExit((jobject)(intptr_t)" + a + ");" + checkException(block, ir);
         }
         if (o.equals("check-cast")) {
+            LandingPad lp = ir.graph.nodeToLandingPad.get(block);
             return "if(" + a + " && !env->IsInstanceOf((jobject)(intptr_t)" + a + ", env->FindClass(\""
                     + Types.descToClass(refType(d))
-                    + "\"))) { env->ThrowNew(env->FindClass(\"java/lang/ClassCastException\"), \"check-cast\"); goto EX_UnwindBlock; }";
+                    + "\"))) { env->ThrowNew(env->FindClass(\"java/lang/ClassCastException\"), \"check-cast\"); goto "
+                    + (lp == null ? "EX_UnwindBlock" : lp.label()) + "; }";
         }
         if (o.equals("instance-of")) {
-            return dst + " = " + assignCast(dst) + "(" + a
-                    + " && env->IsInstanceOf((jobject)(intptr_t)" + a + ", env->FindClass(\""
+            String obj = d.getOperands().isEmpty() ? b : valueVar(d.getOperands().get(0), ir);
+            return dst + " = " + assignCast(dst) + "(" + obj
+                    + " != NULL && env->IsInstanceOf((jobject)(intptr_t)" + obj + ", env->FindClass(\""
                     + Types.descToClass(refType(d)) + "\")) ? 1 : 0);";
         }
         if (o.startsWith("aget")) {
@@ -342,7 +351,7 @@ public final class CppWriter {
             return arrayPut(d, a, b, c) + checkException(block, ir);
         }
         if (o.equals("fill-array-data")) {
-            return "/* fill-array-data payload is lowered when payload metadata is available */";
+            return fillArrayData(d, a, ir);
         }
         if (o.startsWith("iget")) {
             return fieldGet(d, dst, b, false) + checkException(block, ir);
@@ -363,73 +372,82 @@ public final class CppWriter {
             return "/* return terminator */";
         }
         if (o.startsWith("neg-")) {
-            return dst + " = -" + numIfPtr(b) + ";";
+            return dst + " = " + intCast(dst) + "(-" + numIfPtr(b) + ");";
         }
         if (o.startsWith("not-")) {
-            return dst + " = ~" + numIfPtr(b) + ";";
+            return dst + " = " + intCast(dst) + "(~" + numIfPtr(b) + ");";
         }
-        String cast = castOp(o, b);
+        String cast = castOp(o, numIfPtr(b));
         if (cast != null) {
-            return dst + " = " + cast + ";";
+            return dst + " = " + intCast(dst) + cast + ";";
         }
         String bin = binOp(o);
         if (bin != null) {
             return binaryLower(o, bin, a, b, c, dst, d);
         }
         if (o.startsWith("cmp")) {
-            return dst + " = (" + numIfPtr(b) + " > " + numIfPtr(c) + " ? 1 : ("
-                    + numIfPtr(b) + " < " + numIfPtr(c) + " ? -1 : 0));";
+            String t = numIfPtr(b);
+            String u = numIfPtr(c);
+            String rhs;
+            if (o.contains("cmpl")) {
+                rhs = "((" + t + " == " + u + ") ? 0 : (" + t + " > " + u + ") ? 1 : -1)";
+            } else if (o.contains("cmpg")) {
+                rhs = "((" + t + " == " + u + ") ? 0 : (" + t + " < " + u + ") ? -1 : 1)";
+            } else {
+                rhs = "(" + t + " > " + u + " ? 1 : " + t + " < " + u + " ? -1 : 0)";
+            }
+            return dst + " = " + intCast(dst) + rhs + ";";
         }
         return "/* UNSUPPORTED: " + o + " */";
     }
 
     /** Lowers a binary arithmetic operation, honoring literal and /2addr forms. */
     private String binaryLower(String o, String bin, String a, String b, String c, String dst, DexInstruction d) {
+        boolean lit = o.contains("lit");
+        boolean addr = o.contains("2addr");
+        long litv = d.literal() == null ? 0 : d.literal();
+        String x1 = addr ? a : b;
+        String x2 = lit ? Long.toString(litv) : (addr ? b : c);
         String rhs;
-        if (o.contains("lit")) {
-            long lit = d.literal() == null ? 0 : d.literal();
-            rhs = o.startsWith("rsub") ? "(" + lit + " - " + numIfPtr(b) + ")"
-                    : "(" + numIfPtr(b) + " " + bin + " " + lit + ")";
-        } else if (o.contains("2addr")) {
-            rhs = "(" + numIfPtr(a) + " " + bin + " " + numIfPtr(b) + ")";
+        if (o.startsWith("rsub")) {
+            rhs = "(" + x2 + " - " + numIfPtr(x1) + ")";
         } else {
-            rhs = "(" + numIfPtr(b) + " " + bin + " " + numIfPtr(c) + ")";
+            rhs = "(" + numIfPtr(x1) + " " + bin + " " + numIfPtr(x2) + ")";
         }
         if (bin.equals("/") && o.contains("int")) {
-            rhs = "nt_div_i(env," + numIfPtr(b) + "," + numIfPtr(c) + ")";
+            rhs = "nt_div_i(env," + numIfPtr(x1) + "," + numIfPtr(x2) + ")";
         }
         if (bin.equals("%") && o.contains("int")) {
-            rhs = "nt_rem_i(env," + numIfPtr(b) + "," + numIfPtr(c) + ")";
+            rhs = "nt_rem_i(env," + numIfPtr(x1) + "," + numIfPtr(x2) + ")";
         }
         if (bin.equals("/") && o.contains("long")) {
-            rhs = "nt_div_l(env," + numIfPtr(b) + "," + numIfPtr(c) + ")";
+            rhs = "nt_div_l(env," + numIfPtr(x1) + "," + numIfPtr(x2) + ")";
         }
         if (bin.equals("%") && o.contains("long")) {
-            rhs = "nt_rem_l(env," + numIfPtr(b) + "," + numIfPtr(c) + ")";
+            rhs = "nt_rem_l(env," + numIfPtr(x1) + "," + numIfPtr(x2) + ")";
         }
         if (bin.equals("%") && o.contains("float")) {
-            rhs = "fmodf(" + numIfPtr(b) + "," + numIfPtr(c) + ")";
+            rhs = "fmodf(" + numIfPtr(x1) + "," + numIfPtr(x2) + ")";
         }
         if (bin.equals("%") && o.contains("double")) {
-            rhs = "fmod(" + numIfPtr(b) + "," + numIfPtr(c) + ")";
+            rhs = "fmod(" + numIfPtr(x1) + "," + numIfPtr(x2) + ")";
         }
         if (o.startsWith("ushr")) {
-            rhs = "((uint64_t)" + numIfPtr(b) + " >> ((intptr_t)" + c + " & "
-                    + (o.contains("long") ? "63" : "31") + "))";
+            rhs = "((uint" + (o.contains("long") ? "64_t" : "32_t") + ")" + numIfPtr(x1)
+                    + " >> ((intptr_t)" + x2 + " & " + (o.contains("long") ? "63" : "31") + "))";
         }
         if (o.startsWith("shl") || o.startsWith("shr")) {
-            rhs = "(" + numIfPtr(b) + " " + bin + " ((intptr_t)" + c + " & "
+            rhs = "(" + numIfPtr(x1) + " " + bin + " ((intptr_t)" + x2 + " & "
                     + (o.contains("long") ? "63" : "31") + "))";
         }
-        return dst + " = " + rhs + ";";
+        return dst + " = " + intCast(dst) + rhs + ";";
     }
 
     /** Emits the pending-exception check routed to the block's landing pad. */
     private String checkException(IrBasicBlock block, IrMethod ir) {
         LandingPad lp = ir.graph.nodeToLandingPad.get(block);
         return lp == null ? ""
-                : " if(env->ExceptionCheck()){ pendingException=env->ExceptionOccurred(); env->ExceptionClear(); goto "
-                        + lp.label() + "; }";
+                : " if(env->ExceptionCheck()) goto " + lp.label() + ";";
     }
 
     /** Resolves the emitted variable name for a register. */
@@ -457,14 +475,37 @@ public final class CppWriter {
         return Long.toString(d.literal());
     }
 
+    /** Whether a declared C++ type is a pointer-typed slot. */
+    private static boolean isPtrSlot(String t) {
+        return t != null && (t.contains("Array") || t.equals("jobject") || t.equals("jstring")
+                || t.equals("jclass") || t.equals("jthrowable") || t.equals("jweak"));
+    }
+
     /** Casts a value to an integer when its slot is pointer-typed. */
     private String numIfPtr(String x) {
         String t = slotTypes.get(x);
-        if (t != null && (t.contains("Array") || t.equals("jobject") || t.equals("jstring")
-                || t.equals("jclass") || t.equals("jthrowable") || t.equals("jweak"))) {
-            return "(intptr_t)" + x;
+        return isPtrSlot(t) ? "(intptr_t)" + x : x;
+    }
+
+    /** Casts an integer-typed JNI result through {@code intptr_t} when the destination slot is pointer-typed. */
+    private String intCast(String dst) {
+        String t = slotTypes.get(dst);
+        return isPtrSlot(t) ? "(jint)(intptr_t)" : "";
+    }
+
+    /** Number of register operands the DEX instruction actually declares. */
+    private static int regCount(DexInstruction d, int fallback) {
+        Object x = d.getDexInstruction();
+        if (x != null) {
+            try {
+                Number n = (Number) x.getClass().getMethod("getRegisterCount").invoke(x);
+                if (n != null && n.intValue() >= 0) {
+                    return n.intValue();
+                }
+            } catch (Exception ignored) {
+            }
         }
-        return x;
+        return fallback;
     }
 
     /** Resolves the referenced type of a typed instruction. */
@@ -477,19 +518,62 @@ public final class CppWriter {
 
     /** Emits a filled-new-array allocation and its element stores. */
     private String filledArray(String dst, int[] regs, String t, DexInstruction d, IrMethod ir) {
+        int n = regCount(d, regs.length);
+        if (n > regs.length) {
+            n = regs.length;
+        }
         StringBuilder x = new StringBuilder();
-        x.append(newArray(dst, Integer.toString(regs.length), t));
+        x.append(newArray(dst, Integer.toString(n), t));
         String e = t == null ? "Ljava/lang/Object;" : t.substring(1);
-        for (int i = 0; i < regs.length; i++) {
+        for (int i = 0; i < n; i++) {
             String v = value(regs[i], d, ir);
             if (e.startsWith("L") || e.startsWith("[")) {
                 x.append(" env->SetObjectArrayElement((jobjectArray)(intptr_t)").append(dst).append(", ").append(i)
                  .append(", (jobject)(intptr_t)").append(v).append(");");
             } else {
-                x.append(" /* fill primitive */ ");
+                String kind = kindOf(e);
+                x.append(" env->Set").append(kind).append("ArrayRegion((").append(arrayType(kind))
+                 .append(")(intptr_t)").append(dst).append(", ").append(i).append(", 1, (")
+                 .append(elemType(kind)).append("*)&").append(v).append(");");
             }
         }
         return x.toString();
+    }
+
+    /** Lowers a fill-array-data payload into a static byte blob and a Set*ArrayRegion call. */
+    private String fillArrayData(DexInstruction d, String arr, IrMethod ir) {
+        Integer n = d.fillArraySize();
+        Integer w = d.fillArrayElementWidth();
+        byte[] data = d.fillArrayData();
+        if (n == null || w == null || data == null || n <= 0) {
+            return "/* fill-array-data payload unavailable */";
+        }
+        String t = slotTypes.get(arr);
+        String e = t != null && t.startsWith("[") ? t.substring(1) : "B";
+        StringBuilder x = new StringBuilder();
+        x.append(" { static const unsigned char _fa[").append(data.length).append("] = {");
+        for (int i = 0; i < data.length; i++) {
+            if (i % 12 == 0) {
+                x.append("\n");
+            }
+            x.append(data[i] & 0xff).append(", ");
+        }
+        x.append("}; env->Set").append(kindOf(e)).append("ArrayRegion((").append(arrayType(kindOf(e)))
+         .append(")(intptr_t)").append(arr).append(", 0, ").append(n).append(", (")
+         .append(elemType(kindOf(e))).append("*)&_fa[0]); }");
+        return x.toString();
+    }
+
+    /** JNI accessor suffix implied by a primitive element descriptor. */
+    private static String kindOf(String e) {
+        if ("Z".equals(e)) return "Boolean";
+        if ("B".equals(e)) return "Byte";
+        if ("C".equals(e)) return "Char";
+        if ("S".equals(e)) return "Short";
+        if ("J".equals(e)) return "Long";
+        if ("F".equals(e)) return "Float";
+        if ("D".equals(e)) return "Double";
+        return "Int";
     }
 
     /** Emits a typed array allocation. */
@@ -653,7 +737,7 @@ public final class CppWriter {
                 + (Types.ref(f.getType()) ? "(jobject)(intptr_t)" + val : castToParam(val, f.getType())) + ");";
     }
 
-    /** Emits a method invocation, including range and static forms. */
+    /** Emits a method invocation, including range, static and super forms. */
     private String invoke(DexInstruction d, IrMethod ir) {
         if (!(d.reference() instanceof MethodReference)) {
             return "/* unsupported invoke ref */";
@@ -663,32 +747,34 @@ public final class CppWriter {
         String sig = Types.escape(descriptor(m));
         String name = Types.escape(m.getName());
         boolean stat = d.opcode().contains("static");
-        String call = stat ? "CallStatic" : "Call";
+        boolean sup = d.opcode().contains("super");
+        String call = stat ? "CallStatic" : sup ? "CallNonvirtual" : "Call";
         String suf = Types.jniSuffix(m.getReturnType());
-        String obj = stat ? "env->FindClass(\"" + cls + "\")"
+        String clsExpr = "env->FindClass(\"" + cls + "\")";
+        String obj = stat || sup ? clsExpr
                 : "(jobject)(intptr_t)" + (d.registers().length > 0 ? value(d.registers()[0], d, ir) : "thiz");
+        int n = regCount(d, d.registers().length);
+        if (n > d.registers().length) {
+            n = d.registers().length;
+        }
+        List<CharSequence> params = new ArrayList<>(m.getParameterTypes());
         StringBuilder args = new StringBuilder();
         int start = stat ? 0 : 1;
-        List<CharSequence> params = new ArrayList<>(m.getParameterTypes());
-        for (int i = start; i < d.registers().length; i++) {
+        for (int i = start; i < n && (i - start) < params.size(); i++) {
             if (args.length() > 0) {
                 args.append(", ");
             }
             String av = value(d.registers()[i], d, ir);
-            int pi = i - start;
-            if (pi < params.size()) {
-                av = castToParam(av, params.get(pi).toString());
-            }
+            av = castToParam(av, params.get(i - start).toString());
             args.append(av);
         }
-        String expr = "env->Get" + (stat ? "Static" : "") + "MethodID(env->FindClass(\"" + cls + "\"), \""
+        String expr = "env->Get" + (stat ? "Static" : "") + "MethodID(" + clsExpr + ", \""
                 + name + "\", \"" + sig + "\")";
+        String callExpr = "env->" + call + suf + "Method(" + obj + (sup ? ", " + clsExpr : "")
+                + ", " + expr + (args.length() > 0 ? ", " + args : "") + ")";
         String result = d.getValue() instanceof Variable ? var((Variable) d.getValue(), ir) : null;
-        String callExpr = "env->" + call + suf + "Method(" + obj + ", " + expr
-                + (args.length() > 0 ? ", " + args : "") + ")";
         if (result == null) {
-            return "env->" + call + suf + "Method(" + obj + ", " + expr
-                    + (args.length() > 0 ? ", " + args : "") + ");";
+            return callExpr + ";";
         }
         return result + " = " + assignCast(result) + callExpr + ";";
     }
@@ -737,7 +823,8 @@ public final class CppWriter {
             return;
         }
         if (o.equals("throw")) {
-            b.append("  goto EX_UnwindBlock;\n");
+            LandingPad lp = ir.graph.nodeToLandingPad.get(n);
+            b.append("  goto ").append(lp == null ? "EX_UnwindBlock" : lp.label()).append(";\n");
             return;
         }
         if (o.startsWith("if-") && s.size() >= 2) {
@@ -757,7 +844,7 @@ public final class CppWriter {
         }
         if ((o.equals("packed-switch") || o.equals("sparse-switch")) && !s.isEmpty()) {
             b.append("  switch((jint)")
-             .append(d.getOperands().isEmpty() ? "0" : valueVar(d.getOperands().get(0), ir)).append(") {\n");
+             .append(numIfPtr(d.getOperands().isEmpty() ? "0" : valueVar(d.getOperands().get(0), ir))).append(") {\n");
             for (Map.Entry<Integer, Integer> e : d.switchTargets().entrySet()) {
                 for (IrBasicBlock x : s) {
                     if (x.start == e.getValue()) {
