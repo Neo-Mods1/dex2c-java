@@ -161,8 +161,8 @@ public final class Compiler {
                     String n = t.getClass().getSimpleName();
                     failures.merge(n, 1, Integer::sum);
                     String msg = t.getMessage();
-                    String key = n + ":" + (msg == null ? "" : (msg.length() > 100 ? msg.substring(0, 100) : msg));
-                    byMessage.merge(key, 1, Integer::sum);
+                    String mkey = n + ":" + (msg == null ? "" : (msg.length() > 100 ? msg.substring(0, 100) : msg));
+                    byMessage.merge(mkey, 1, Integer::sum);
                     if (!examples.containsKey(n)) {
                         examples.put(n, c.getType() + "->" + m.getName() + descriptor(m) + ": " + t);
                     }
