@@ -127,6 +127,7 @@ public final class Compiler {
         Set<String> conflicted = conflicts(dex);
         Map<String, Integer> failures = new HashMap<>();
         Map<String, String> examples = new HashMap<>();
+        Map<String, Integer> byMessage = new HashMap<>();
         long t0 = System.currentTimeMillis();
         for (ClassDef c : dex.getClasses()) {
             for (Method m : c.getMethods()) {
@@ -159,6 +160,9 @@ public final class Compiler {
                     r.unsupported++;
                     String n = t.getClass().getSimpleName();
                     failures.merge(n, 1, Integer::sum);
+                    String msg = t.getMessage();
+                    String key = n + ":" + (msg == null ? "" : (msg.length() > 100 ? msg.substring(0, 100) : msg));
+                    byMessage.merge(key, 1, Integer::sum);
                     if (!examples.containsKey(n)) {
                         examples.put(n, c.getType() + "->" + m.getName() + descriptor(m) + ": " + t);
                     }
@@ -174,6 +178,10 @@ public final class Compiler {
                     .map(e -> e.getKey() + "=" + e.getValue()
                             + (examples.containsKey(e.getKey()) ? " (e.g. " + examples.get(e.getKey()) + ")" : ""))
                     .collect(java.util.stream.Collectors.joining(", ")));
+            System.err.println("compile: message breakdown "
+                    + byMessage.entrySet().stream().sorted((a, b) -> b.getValue() - a.getValue())
+                            .map(e -> "[" + e.getKey() + "]=" + e.getValue())
+                            .collect(java.util.stream.Collectors.joining(", ")));
         }
         return r;
     }

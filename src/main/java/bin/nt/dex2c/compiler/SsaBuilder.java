@@ -174,7 +174,7 @@ public final class SsaBuilder {
 
     /** Depth-limited Braun recursion: terminates on degenerate back edges. */
     private Value readRecursive(int r, IrBasicBlock b, int depth) {
-        if (depth > 512) {
+        if (depth > 64) {
             Phi phi = (Phi) newVar(r, true);
             phi.setBlock(b);
             b.addPhi(phi);
@@ -518,8 +518,13 @@ public final class SsaBuilder {
                 versions.put(reg, nv.getVersion() + 1);
                 copy.setValue(nv);
                 for (Value op : original.getOperands()) {
-                    if (op instanceof Constant) copy.addOperand(new Constant(((Constant)op).getConstant(), null));
-                    else copy.addOperand(op);
+                    if (op instanceof Constant) {
+                        Object c = ((Constant) op).getConstant();
+                        String t = c instanceof Long && ((Long) c) > Integer.MAX_VALUE ? "J" : "I";
+                        copy.addOperand(new Constant(c, t));
+                    } else {
+                        copy.addOperand(op);
+                    }
                 }
                 block.addInsBefore(copy, user);
                 user.replaceUse(old, nv);
