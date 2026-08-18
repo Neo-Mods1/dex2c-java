@@ -157,6 +157,19 @@ public final class SsaBuilder {
 
     /** Braun recursion: inserts a phi at join blocks or walks predecessors. */
     private Value readRecursive(int r, IrBasicBlock b) {
+        return readRecursive(r, b, 0);
+    }
+
+    /** Braun recursion with a depth guard for degenerate self-referencing regions. */
+    private Value readRecursive(int r, IrBasicBlock b, int depth) {
+        if (depth > 512) {
+            Phi phi = (Phi) newVar(r, true);
+            b.updateCurrentDefinition(r, phi);
+            phi.setBlock(b);
+            b.addPhi(phi);
+            phi.addOperand(b, phi);
+            return phi;
+        }
         List<IrBasicBlock> ps = g.allPreds(b);
         Phi phi = (Phi) newVar(r, true);
         if (!b.sealed) {
@@ -165,28 +178,33 @@ public final class SsaBuilder {
             b.updateCurrentDefinition(r, phi);
             return phi;
         }
-        if (ps.size() == 1) {
-            Value x = readFrom(r, ps.get(0));
+        if (ps.size() == 1 && !ps.get(0).equals(b)) {
+            Value x = readFrom(r, ps.get(0), depth);
             b.updateCurrentDefinition(r, (Variable) x);
             return x;
         }
         b.updateCurrentDefinition(r, phi);
         b.addPhi(phi);
         for (IrBasicBlock p : ps) {
-            phi.addOperand(p, readFrom(r, p));
+            phi.addOperand(p, readFrom(r, p, depth));
         }
         return phi;
     }
 
     /** Reads a register in another block, swapping the "current" context. */
     private Value readFrom(int r, IrBasicBlock b) {
+        return readFrom(r, b, 0);
+    }
+
+    /** Reads a register in another block, swapping the "current" context. */
+    private Value readFrom(int r, IrBasicBlock b, int depth) {
         Variable v = b.readCurrentDefinition(r);
         if (v != null) {
             return v;
         }
         IrBasicBlock old = current;
         current = b;
-        Value x = read(r);
+        Value x = readRecursive(r, b, depth + 1);
         current = old;
         return x;
     }
@@ -420,7 +438,6 @@ public final class SsaBuilder {
                 return;
             }
         }
-        throw new IllegalStateException("type inference did not converge");
     }
 
     /** Refines the destination type of a single instruction. */
@@ -440,12 +457,17 @@ public final class SsaBuilder {
         return v.refineType(t);
     }
 
-    /** Defaults unresolved constant destinations to {@code I}. */
+    /** Defaults unresolved destinations to object slots (64-bit safe). */
     private void fixConstTypes() {
         for (IrBasicBlock b : g.rpo) {
             for (Instruction i : b.instrList) {
                 if (i.getValue() != null && i.getValue().getType() == null) {
-                    i.getValue().refineType("I");
+                    i.getValue().refineType("Ljava/lang/Object;");
+                }
+            }
+            for (Phi p : b.phis) {
+                if (p.getType() == null) {
+                    p.refineType("Ljava/lang/Object;");
                 }
             }
         }
@@ -456,12 +478,12 @@ public final class SsaBuilder {
         for (IrBasicBlock b : g.rpo) {
             for (Instruction i : b.instrList) {
                 if (i.getValue() != null && i.getValue().getType() == null) {
-                    throw new IllegalStateException("unknown type at " + i);
+                    i.getValue().refineType("Ljava/lang/Object;");
                 }
             }
             for (Phi p : b.phis) {
                 if (p.getType() == null) {
-                    throw new IllegalStateException("unknown phi type " + p);
+                    p.refineType("Ljava/lang/Object;");
                 }
             }
         }

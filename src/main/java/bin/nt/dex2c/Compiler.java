@@ -126,6 +126,7 @@ public final class Compiler {
         Main.Result r = new Main.Result();
         Set<String> conflicted = conflicts(dex);
         Map<String, Integer> failures = new HashMap<>();
+        Map<String, String> examples = new HashMap<>();
         long t0 = System.currentTimeMillis();
         for (ClassDef c : dex.getClasses()) {
             for (Method m : c.getMethods()) {
@@ -141,7 +142,7 @@ public final class Compiler {
                 String key = c.getType() + m.getName() + params(m);
                 if (conflicted.contains(key)) {
                     r.unsupported++;
-                    failures.merge("conflicted-return-type", 1, Integer::sum);
+                    fail(failures, examples, "conflicted-return-type", c, m);
                     continue;
                 }
                 try {
@@ -156,8 +157,7 @@ public final class Compiler {
                     }
                 } catch (Throwable t) {
                     r.unsupported++;
-                    String n = t.getClass().getSimpleName();
-                    failures.merge(n, 1, Integer::sum);
+                    fail(failures, examples, t.getClass().getSimpleName(), c, m);
                     cpp.append("\n/* FAILED ")
                        .append(safe(c.getType() + "->" + m.getName() + descriptor(m) + ": " + t))
                        .append(" */\n");
@@ -167,10 +167,19 @@ public final class Compiler {
         if (!failures.isEmpty()) {
             System.err.println("compile: unsupported breakdown " + failures.entrySet().stream()
                     .sorted((a, b) -> b.getValue() - a.getValue())
-                    .map(e -> e.getKey() + "=" + e.getValue())
+                    .map(e -> e.getKey() + "=" + e.getValue()
+                            + (examples.containsKey(e.getKey())
+                                    ? " (e.g. " + safe(examples.get(e.getKey())) + ")" : ""))
                     .collect(java.util.stream.Collectors.joining(", ")));
         }
         return r;
+    }
+
+    /** Records a failed method under its cause, keeping the first example. */
+    private static void fail(Map<String, Integer> counts, Map<String, String> examples,
+                             String cause, ClassDef c, Method m) {
+        counts.merge(cause, 1, Integer::sum);
+        examples.putIfAbsent(cause, c.getType() + "->" + m.getName() + descriptor(m));
     }
 
     /** The parameter types of a method as a single string. */
