@@ -246,8 +246,12 @@ public final class Main {
         for (String n : natives) {
             extra.add(Pattern.quote(n) + "\\(");
         }
-        extra.addAll(synthetic);
-        extra.addAll(longNames);
+        for (String s : synthetic) {
+            extra.add(Pattern.quote(s));
+        }
+        for (String l : longNames) {
+            extra.add(Pattern.quote(l));
+        }
         if (c.excludes == null) {
             c.excludes = new ArrayList<>();
         }
