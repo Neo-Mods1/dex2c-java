@@ -169,6 +169,19 @@ public final class SsaBuilder {
 
     /** Braun recursion: inserts a phi at join blocks or walks predecessors. */
     private Value readRecursive(int r, IrBasicBlock b) {
+        return readRecursive(r, b, 0);
+    }
+
+    /** Depth-limited Braun recursion: terminates on degenerate back edges. */
+    private Value readRecursive(int r, IrBasicBlock b, int depth) {
+        if (depth > 512) {
+            Phi phi = (Phi) newVar(r, true);
+            phi.setBlock(b);
+            b.addPhi(phi);
+            phi.addOperand(b, phi);
+            b.updateCurrentDefinition(r, phi);
+            return phi;
+        }
         List<IrBasicBlock> ps = g.allPreds(b);
         Phi phi = (Phi) newVar(r, true);
         if (!b.sealed) {
