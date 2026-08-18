@@ -14,7 +14,16 @@ public final class IrVerifier {
     private IrVerifier() {}
 
     public static void verify(IrMethod ir) {
+        verify(ir, java.util.Collections.emptyList());
+    }
+
+    /**
+     * Verifies the IR, treating the given values (method parameters) as
+     * pre-existing definitions.
+     */
+    public static void verify(IrMethod ir, java.util.Collection<Value> parameters) {
         Set<Value> defs = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        defs.addAll(parameters);
         for (IrBasicBlock b : ir.irblocks) {
             for (Phi p : b.phis) {
                 if (p.getBlock() != b) fail("phi has wrong block", b, p);
@@ -40,11 +49,11 @@ public final class IrVerifier {
         }
     }
 
-    private static void requireValue(Value v, Set<Value> defs, IrBasicBlock b, Instruction i) {
-        if (v == null) fail("null operand", b, i);
-        if (v.getType() == null) fail("untyped operand", b, i);
+    private static void requireValue(Value v, Set<Value> defs, IrBasicBlock b, Object node) {
+        if (v == null) fail("null operand", b, node);
+        if (v.getType() == null) fail("untyped operand", b, node);
         if (!v.isConstant() && v.getDefinition() == null && !defs.contains(v))
-            fail("use without definition", b, i);
+            fail("use without definition", b, node);
     }
 
     private static boolean compatible(String a, String b) {

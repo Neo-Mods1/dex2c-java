@@ -36,6 +36,7 @@ public final class SsaBuilder {
     private final Method method;
     private final Map<Integer, Integer> versions = new HashMap<>();
     private final Map<IrBasicBlock, Boolean> processed = new IdentityHashMap<>();
+    private final java.util.List<Value> parameters = new java.util.ArrayList<>();
     private IrBasicBlock current;
 
     /**
@@ -78,7 +79,7 @@ public final class SsaBuilder {
         // always run inference once more exactly like the reference builder.
         inferTypes();
         IrMethod ir = new IrMethod(method, g);
-        IrVerifier.verify(ir);
+        IrVerifier.verify(ir, parameters);
         verifyIRInvariants();
         verifyOperandTypes();
         verifyPhiOperandTypes();
@@ -112,6 +113,7 @@ public final class SsaBuilder {
             v.setType(method.getDefiningClass());
             g.entry.updateCurrentDefinition(reg, v);
             g.entry.varToDeclare.add(v);
+            parameters.add(v);
             reg++;
         }
         for (CharSequence p : method.getParameterTypes()) {
@@ -120,6 +122,7 @@ public final class SsaBuilder {
             v.setType(t);
             g.entry.updateCurrentDefinition(reg, v);
             g.entry.varToDeclare.add(v);
+            parameters.add(v);
             reg += slots(t);
         }
     }

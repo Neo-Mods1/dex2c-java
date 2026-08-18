@@ -9,3 +9,5 @@ dex2c-out/
 dex2c-cli-2.0.0/
 build/
 .gradle/
+
+**/__pycache__/
