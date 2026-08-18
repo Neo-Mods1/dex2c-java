@@ -115,19 +115,19 @@ Requires JDK 11+ and Gradle 8.x.
 Output:
 
 ```text
-build/libs/dex2c-cli-2.0.0-all.jar
+build/libs/dex2c-cli-2.2.0-all.jar
 ```
 
 ## CLI
 
 ```bash
-java -jar build/libs/dex2c-cli-2.0.0-all.jar --help
+java -jar build/libs/dex2c-cli-2.2.0-all.jar --help
 ```
 
 Compile a DEX:
 
 ```bash
-java -jar build/libs/dex2c-cli-2.0.0-all.jar \
+java -jar build/libs/dex2c-cli-2.2.0-all.jar \
   --input classes.dex \
   --output out
 ```
@@ -135,7 +135,7 @@ java -jar build/libs/dex2c-cli-2.0.0-all.jar \
 Compile an APK/multidex APK:
 
 ```bash
-java -jar build/libs/dex2c-cli-2.0.0-all.jar \
+java -jar build/libs/dex2c-cli-2.2.0-all.jar \
   --input app.apk \
   --output out
 ```
@@ -151,7 +151,7 @@ Filter:
 Inspect without compiling:
 
 ```bash
-java -jar build/libs/dex2c-cli-2.0.0-all.jar \
+java -jar build/libs/dex2c-cli-2.2.0-all.jar \
   --command inspect \
   --input app.apk
 ```
@@ -159,7 +159,7 @@ java -jar build/libs/dex2c-cli-2.0.0-all.jar \
 Build a hardened APK (compile → NDK `.so` → mark native → repack → sign):
 
 ```bash
-java -jar build/libs/dex2c-cli-2.0.0-all.jar \
+java -jar build/libs/dex2c-cli-2.2.0-all.jar \
   --command build \
   --input app.apk \
   --output app-dex2c.apk
@@ -169,8 +169,11 @@ The `build` command discovers `ndk-build` from `--ndk-dir` or `ANDROID_NDK_HOME`
 
 ```bash
 --lib-name mylib      # LOCAL_MODULE name (default: stub)
---dynamic-register    # register natives via RegisterNatives instead of static exports
---min-sdk 21          # native build + apksigner target SDK
+--dynamic-register    # RegisterNatives (default)
+--min-sdk 21          # APK/native minimum API; supported range 21..37
+--target-sdk 35       # explicit APK target API; otherwise preserve the APK
+--native-api 35       # NDK APP_PLATFORM API; independent of targetSdk
+--max-sdk 37          # apksigner max SDK
 --lib-abis arm64-v8a,armeabi-v7a
 --no-build            # only generate the JNI project, do not run ndk-build
 --source-dir ./project
@@ -237,8 +240,21 @@ The test suite covers the IR pipeline (graph, SSA, phi cleanup) and the C++ writ
 - `PortSmokeTest` — graph construction, RPO, dominators, trivial-phi removal
 - `WriterSmokeTest` — a method lowered through the full pipeline to JNI C++
 
-Continuous integration (`.github/workflows/build.yml`) builds the fat JAR, runs both smoke tests, compiles and inspects the real APK under `test/` (`NT Manager_1.0.apk`), runs the full `build` pipeline against it with the NDK, verifies the signed output, and uploads the JAR and APK as build artifacts.
+Continuous integration (`.github/workflows/build.yml`) builds the fat JAR with Gradle 8.10.2, runs CLI/SDK smoke checks, and runs the full APK rebuild verification automatically when a `test/app-release.apk` fixture is supplied. The APK fixture is intentionally not required for ordinary pull requests.
 
 ## License
 
 See `NOTICE`.
+
+## Reference differential audit
+
+The bundled `tools/differential_test.py` compares the Java port against the
+bundled Python reference for critical opcode coverage and semantic anchors.
+Run it on a host with Python 3 before submitting changes:
+
+```bash
+python3 tools/differential_test.py
+```
+
+The audit is intentionally host-only; Android/NDK execution remains a separate
+CI/device validation stage.

@@ -107,6 +107,17 @@ public final class DexInstruction extends Instruction {
         return fillArrayData;
     }
 
+    /** Creates a semantic copy used by SSA constant specialization. */
+    public DexInstruction copyForSsa() {
+        DexInstruction x = new DexInstruction(opcode, regs.clone(), literal, reference, branchTarget,
+                switchTargets, fillArraySize, fillArrayElementWidth,
+                fillArrayData == null ? null : fillArrayData.clone());
+        x.setOffset(offset);
+        x.setNextOffset(nextOffset);
+        x.setDexInstruction(dexInstruction);
+        return x;
+    }
+
     @Override
     public String emit() {
         return opcode + Arrays.toString(regs) + (literal == null ? "" : " #" + literal);

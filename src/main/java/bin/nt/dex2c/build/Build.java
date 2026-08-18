@@ -63,6 +63,10 @@ public final class Build {
         Path work = Files.createTempDirectory("dex2c-build-");
         String libName = cli.libName != null && !cli.libName.isEmpty() ? cli.libName : "stub";
         int minSdk = cli.minSdk > 0 ? cli.minSdk : 21;
+        int nativeApi = cli.nativeApi > 0 ? cli.nativeApi : minSdk;
+        if (nativeApi < minSdk) {
+            throw new IOException("native API " + nativeApi + " cannot be below min SDK " + minSdk);
+        }
 
         List<Path> dexes = Main.InputDexes.extract(input, work.resolve("dex"));
         Main.applyFilterFile(cli);
@@ -119,7 +123,7 @@ public final class Build {
 
         List<String> abis = cli.libAbis != null ? splitAbis(cli.libAbis) : apkAbis(input);
         Path proj = cli.sourceDir != null ? Paths.get(cli.sourceDir) : work.resolve("project");
-        NdkProject.write(proj, libName, minSdk, abis, cli.dynamicRegister, compiled,
+        NdkProject.write(proj, libName, minSdk, nativeApi, abis, cli.dynamicRegister, compiled,
                 Compiler.mappable(cpp.toString()));
         Main.info(cli, "build: project written to " + proj.toAbsolutePath()
                 + " (" + compiled.size() + " methods in jni/nc)");
@@ -169,7 +173,7 @@ public final class Build {
 
         Path unsigned = work.resolve("unsigned.apk");
         assembleWithApkTool(resolveApktool(cli.apktool), input, work, unsigned,
-                newDexes, libs, appOverride);
+                newDexes, libs, appOverride, cli.targetSdk);
         List<String> zipalign = new ArrayList<>();
         zipalign.add(ToolRunner.findTool(cli.zipalign, "zipalign"));
         zipalign.add("-f");
@@ -201,7 +205,7 @@ public final class Build {
             sign.add("--min-sdk-version");
             sign.add(String.valueOf(minSdk));
             sign.add("--max-sdk-version");
-            sign.add(String.valueOf(cli.maxSdk > 0 ? cli.maxSdk : 33));
+            sign.add(String.valueOf(cli.maxSdk > 0 ? cli.maxSdk : 37));
             if (cli.signV1 != null) {
                 sign.add("--v1-signing-enabled");
                 sign.add(String.valueOf(cli.signV1));
@@ -386,7 +390,7 @@ public final class Build {
      */
     static void assembleWithApkTool(String apktool, Path input, Path work, Path out,
                                     Map<String, Path> dexes, Map<String, Path> libs,
-                                    String appOverride) throws IOException {
+                                    String appOverride, int targetSdk) throws IOException {
         Path dir = work.resolve("apktool-out");
         ToolRunner.run(List.of("java", "-jar", apktool, "d", "-f", "-s",
                 input.toString(), "-o", dir.toString()));
@@ -405,10 +409,29 @@ public final class Build {
         if (appOverride != null) {
             patchManifestApp(dir.resolve("AndroidManifest.xml"), appOverride);
         }
+        if (targetSdk > 0) {
+            patchManifestTargetSdk(dir.resolve("AndroidManifest.xml"), targetSdk);
+        }
         patchApktoolNoCompress(dir);
         ToolRunner.run(List.of("java", "-jar", apktool, "b", dir.toString(),
                 "-o", out.toString()));
         storeLibEntries(out);
+    }
+
+    /** Updates targetSdkVersion only when the user explicitly requested it. */
+    static void patchManifestTargetSdk(Path manifest, int targetSdk) throws IOException {
+        String xml = Files.readString(manifest, StandardCharsets.UTF_8);
+        String attr = "android:targetSdkVersion=\"" + targetSdk + "\"";
+        String patched;
+        if (xml.matches("(?s).*android:targetSdkVersion=\"[^\"]*\".*")) {
+            patched = xml.replaceFirst("android:targetSdkVersion=\"[^\"]*\"", attr);
+        } else {
+            patched = xml.replaceFirst("(<uses-sdk\\b[^>]*)", "$1 " + attr);
+        }
+        if (patched.equals(xml)) {
+            throw new IOException("Could not patch targetSdkVersion in " + manifest);
+        }
+        Files.writeString(manifest, patched, StandardCharsets.UTF_8);
     }
 
     /** Adds {@code so} to the decoded {@code apktool.yml} no-compress list. */

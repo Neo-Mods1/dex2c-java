@@ -38,7 +38,7 @@ import bin.nt.dex2c.writer.CppWriter;
 public final class Main {
 
     /** Version reported by {@code --version}. */
-    private static final String VERSION = "1.0.0";
+    private static final String VERSION = "2.2.0";
 
     private Main() {
     }
@@ -63,6 +63,7 @@ public final class Main {
         if (config != null) {
             cli.apply(Config.load(config));
         }
+        validateSdkOptions(cli);
         if (cli.input == null) {
             throw new IllegalArgumentException("Missing --input");
         }
@@ -111,6 +112,24 @@ public final class Main {
         }
         info(cli, "dex2c: scanned " + methods + " methods, emitted " + compiled + " -> "
                 + out.toAbsolutePath());
+    }
+
+    private static void validateSdkOptions(Cli c) {
+        if (c.minSdk < 21 || c.minSdk > 37) {
+            throw new IllegalArgumentException("--min-sdk must be between 21 and 37");
+        }
+        if (c.targetSdk < 0 || c.targetSdk > 37) {
+            throw new IllegalArgumentException("--target-sdk must be between 21 and 37 when specified");
+        }
+        if (c.targetSdk > 0 && c.targetSdk < c.minSdk) {
+            throw new IllegalArgumentException("--target-sdk cannot be below --min-sdk");
+        }
+        if (c.nativeApi != 0 && (c.nativeApi < 21 || c.nativeApi > 37)) {
+            throw new IllegalArgumentException("--native-api must be between 21 and 37");
+        }
+        if (c.maxSdk < c.minSdk || c.maxSdk > 37) {
+            throw new IllegalArgumentException("--max-sdk must be between minSdk and 37");
+        }
     }
 
     /**
@@ -305,7 +324,7 @@ public final class Main {
         public String methodFilter;
         public boolean help;
         public boolean version;
-        public boolean dynamicRegister;
+        public boolean dynamicRegister = true;
         public boolean skipSynthetic;
         public boolean comments = true;
         public boolean silent;
@@ -324,7 +343,11 @@ public final class Main {
         public String sourceDir;
         public String libAbis;
         public int minSdk = 21;
-        public int maxSdk = 33;
+        /** Target SDK used for signing/manifest policy when explicitly overridden. */
+        public int targetSdk = 0;
+        /** Native NDK API level; independent from the APK target SDK. */
+        public int nativeApi = 0;
+        public int maxSdk = 37;
         public boolean noBuild;
         public boolean disableSigning;
         public String configPath;
@@ -434,6 +457,12 @@ public final class Main {
                         break;
                     case "--min-sdk":
                         c.minSdk = Integer.parseInt(a[++i]);
+                        break;
+                    case "--target-sdk":
+                        c.targetSdk = Integer.parseInt(a[++i]);
+                        break;
+                    case "--native-api":
+                        c.nativeApi = Integer.parseInt(a[++i]);
                         break;
                     case "--max-sdk":
                         c.maxSdk = Integer.parseInt(a[++i]);
@@ -577,15 +606,17 @@ public final class Main {
                     + "  --skip-synthetic             Skip synthetic methods (default: compile them)\n"
                     + "  --allow-global               Permit a global '.*' filter (not recommended)\n"
                     + "  -c, --config <file>          protector.cfg-style config (default: CWD protector.cfg)\n"
-                    + "  --dynamic-register           Register natives via RegisterNatives\n"
+                    + "  --dynamic-register           Register natives via RegisterNatives (default)\n"
                     + "  --command <compile|build|inspect>\n"
                     + "  --silent                     Suppress informational output\n"
                     + "Build options:\n"
                     + "  --lib-name <name>            Native library module name (default: stub)\n"
                     + "  --custom-loader <class>      Loader class when no Application (default: <pkg>.App)\n"
                     + "  --ndk-dir <dir>              Android NDK root (default: discover from env)\n"
-                    + "  --min-sdk <n>                Target SDK for the native build (default: 21)\n"
-                    + "  --max-sdk <n>                Max SDK passed to apksigner (default: 33)\n"
+                    + "  --min-sdk <n>                APK/native minimum API (21..37, default: 21)\n"
+                    + "  --target-sdk <n>             Explicit APK target API (21..37; default: preserve APK)\n"
+                    + "  --native-api <n>             NDK APP_PLATFORM API (21..37; default: min SDK)\n"
+                    + "  --max-sdk <n>                Max SDK passed to apksigner (default: 37)\n"
                     + "  --lib-abis <a,b,c>          Override target ABIs (default: APK lib dirs)\n"
                     + "  --no-build                  Generate the JNI project without running ndk-build\n"
                     + "  --source-dir <dir>          Write the JNI project here (default: temp)\n"
