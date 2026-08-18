@@ -33,6 +33,7 @@ jobs:
           echo "$ANDROID_HOME/build-tools/$(ls $ANDROID_HOME/build-tools | sort -V | tail -1)" >> $GITHUB_PATH
 
       - name: Reference differential audit
+        if: ${{ hashFiles('reference/**') != '' }}
         run: python3 tools/differential_test.py
 
       - name: CLI smoke test
